@@ -12,8 +12,9 @@ use modules::clipboard::{
 };
 use modules::git::{
     git_branch_checkout, git_branch_create_at, git_branch_delete, git_branches, git_cherry_pick,
-    git_commit, git_diff, git_graph_log, git_log, git_merge, git_push, git_reset, git_resolve_repo,
-    git_revert, git_stage, git_status, git_tag_create, git_tag_delete, git_unstage,
+    git_commit, git_diff, git_fetch, git_graph_log, git_log, git_merge, git_push, git_reset,
+    git_resolve_repo, git_revert, git_stage, git_status, git_tag_create, git_tag_delete,
+    git_unstage,
 };
 use modules::secrets::{secrets_delete_key, secrets_has_key, secrets_set_key};
 use modules::pty::{
@@ -62,6 +63,7 @@ pub fn run() {
             git_log,
             git_diff,
             git_push,
+            git_fetch,
             git_graph_log,
             git_branches,
             git_branch_checkout,

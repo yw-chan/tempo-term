@@ -328,6 +328,11 @@ pub fn push(repo_path: &str) -> Result<String, String> {
     run_git(repo_path, &["push"])
 }
 
+/// 抓所有遠端並清掉已刪除的遠端分支。
+pub fn fetch(repo_path: &str) -> Result<(), String> {
+    run_git(repo_path, &["fetch", "--all", "--prune"]).map(|_| ())
+}
+
 /// Parse a `git log --decorate=full` decoration string (the `%d` placeholder,
 /// e.g. " (HEAD -> refs/heads/main, tag: refs/tags/v1.0, refs/remotes/origin/main)")
 /// into structured refs. Pure so it can be unit tested without a repo.
@@ -643,6 +648,11 @@ pub fn git_diff(repo_path: String, staged: bool) -> Result<String, String> {
 #[tauri::command]
 pub fn git_push(repo_path: String) -> Result<String, String> {
     push(&repo_path)
+}
+
+#[tauri::command]
+pub fn git_fetch(repo_path: String) -> Result<(), String> {
+    fetch(&repo_path)
 }
 
 #[tauri::command]
