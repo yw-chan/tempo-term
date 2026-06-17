@@ -229,7 +229,7 @@ function TreeNode({ entry, depth, onReloadParent }: TreeNodeProps) {
           onMouseLeave={() => setHovered(false)}
           title={entry.name}
           style={{ paddingLeft: depth * 12 + 8 }}
-          className={`flex w-full items-center gap-1.5 py-1 pr-2 text-left text-sm transition-colors ${
+          className={`flex w-full items-center gap-1.5 py-1 pr-2 text-left text-[13px] transition-colors ${
             isActive
               ? "bg-accent/15 text-fg"
               : hovered
