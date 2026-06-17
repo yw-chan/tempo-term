@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use git2::{Repository, Signature, Status, StatusOptions};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FileStatus {
@@ -63,6 +63,42 @@ pub struct BranchInfo {
     pub name: String,
     #[serde(rename = "isCurrent")]
     pub is_current: bool,
+}
+
+/// 線圖的顯示選項，來自前端工具列。branch 空字串或 None 代表 Show All。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GraphOptions {
+    pub branch: Option<String>,
+    pub include_remotes: bool,
+    pub include_tags: bool,
+    pub include_stashes: bool,
+}
+
+/// 把顯示選項翻成 git log 的 ref 範圍參數。純函式方便測試。
+/// 指定分支時只給該分支，沒指定用 --branches 含全部本地分支；
+/// remote/tag/stash 開關各自疊加。
+fn build_log_refs(options: &GraphOptions) -> Vec<String> {
+    let mut refs: Vec<String> = Vec::new();
+    let branch = options
+        .branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|b| !b.is_empty());
+    match branch {
+        Some(name) => refs.push(name.to_string()),
+        None => refs.push("--branches".to_string()),
+    }
+    if options.include_remotes {
+        refs.push("--remotes".to_string());
+    }
+    if options.include_tags {
+        refs.push("--tags".to_string());
+    }
+    if options.include_stashes {
+        refs.push("--glob=refs/stash".to_string());
+    }
+    refs
 }
 
 /// Short code for the staged (index vs HEAD) side of a status, if any.
@@ -854,5 +890,48 @@ mod tests {
         assert!(staged_diff.contains("+hello world"));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn build_log_refs_show_all_default() {
+        let options = GraphOptions::default();
+        assert_eq!(build_log_refs(&options), vec!["--branches".to_string()]);
+    }
+
+    #[test]
+    fn build_log_refs_specific_branch() {
+        let options = GraphOptions {
+            branch: Some("main".to_string()),
+            ..GraphOptions::default()
+        };
+        assert_eq!(build_log_refs(&options), vec!["main".to_string()]);
+    }
+
+    #[test]
+    fn build_log_refs_toggles_stack() {
+        let options = GraphOptions {
+            branch: None,
+            include_remotes: true,
+            include_tags: true,
+            include_stashes: true,
+        };
+        assert_eq!(
+            build_log_refs(&options),
+            vec![
+                "--branches".to_string(),
+                "--remotes".to_string(),
+                "--tags".to_string(),
+                "--glob=refs/stash".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_log_refs_blank_branch_is_show_all() {
+        let options = GraphOptions {
+            branch: Some("   ".to_string()),
+            ..GraphOptions::default()
+        };
+        assert_eq!(build_log_refs(&options), vec!["--branches".to_string()]);
     }
 }
