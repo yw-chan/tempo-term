@@ -1,7 +1,7 @@
-/** A ref decoration attached to a commit (branch / tag / HEAD / remote). */
+/** A ref decoration attached to a commit (branch / tag / HEAD / remote / stash). */
 export interface CommitRef {
   name: string;
-  /** "head" | "branch" | "tag" | "remote" | "unknown" */
+  /** "head" | "branch" | "tag" | "remote" | "stash" | "unknown" */
   kind: string;
 }
 
@@ -21,8 +21,17 @@ export interface GraphLog {
   hasMore: boolean;
 }
 
-/** A local branch entry. */
+/** A local or remote branch entry. */
 export interface Branch {
   name: string;
   isCurrent: boolean;
+  isRemote: boolean;
+}
+
+/** Display options sent to the backend graph log. `branch` null means Show All. */
+export interface GraphOptions {
+  branch: string | null;
+  includeRemotes: boolean;
+  includeTags: boolean;
+  includeStashes: boolean;
 }

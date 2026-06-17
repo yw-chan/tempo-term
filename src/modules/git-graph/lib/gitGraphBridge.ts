@@ -1,13 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Branch, GraphLog } from "../types";
+import type { Branch, GraphLog, GraphOptions } from "../types";
 
-/** Read the commit DAG (all branches) for the graph view. */
+/** Read the commit DAG for the graph view, filtered by display options. */
 export function gitGraphLog(
   repoPath: string,
-  limit?: number,
+  limit: number,
+  options: GraphOptions,
   skip?: number,
 ): Promise<GraphLog> {
-  return invoke<GraphLog>("git_graph_log", { repoPath, limit, skip });
+  return invoke<GraphLog>("git_graph_log", { repoPath, limit, skip, options });
 }
 
 /** List local branches, marking the current one. */
@@ -61,6 +62,11 @@ export function gitMerge(repoPath: string, name: string): Promise<void> {
 /** Revert `commit` with a new commit. */
 export function gitRevert(repoPath: string, commit: string): Promise<void> {
   return invoke("git_revert", { repoPath, commit });
+}
+
+/** Fetch all remotes and prune deleted remote branches. */
+export function gitFetch(repoPath: string): Promise<void> {
+  return invoke("git_fetch", { repoPath });
 }
 
 /** Cherry-pick `commit` onto the current branch. */
