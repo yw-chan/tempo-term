@@ -9,6 +9,23 @@
     "title": "No commits yet",
     "hint": "Make a commit to start building history, and it will appear here."
   },
+  "toolbar": {
+    "branches": "Branches",
+    "showAll": "Show All",
+    "showRemoteBranches": "Show Remote Branches",
+    "localGroup": "Local",
+    "remoteGroup": "Remote",
+    "search": "Search commits",
+    "searchPlaceholder": "Search message, author, hash…",
+    "displayOptions": "Display options",
+    "showTags": "Show Tags",
+    "showStashes": "Show Stashes",
+    "refresh": "Refresh",
+    "fetch": "Fetch",
+    "fetching": "Fetching…",
+    "matches": "{{count}} matches",
+    "head": "HEAD"
+  },
   "menu": {
     "createBranchHere": "Create branch here…",
     "createTagHere": "Create tag here…",

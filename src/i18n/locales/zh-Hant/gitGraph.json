@@ -9,6 +9,23 @@
     "title": "還沒有任何提交",
     "hint": "做一次提交開始建立歷史紀錄，之後就會顯示在這裡。"
   },
+  "toolbar": {
+    "branches": "分支",
+    "showAll": "全部分支",
+    "showRemoteBranches": "顯示遠端分支",
+    "localGroup": "本地",
+    "remoteGroup": "遠端",
+    "search": "搜尋提交",
+    "searchPlaceholder": "搜尋訊息、作者、hash…",
+    "displayOptions": "顯示選項",
+    "showTags": "顯示標籤",
+    "showStashes": "顯示 stash",
+    "refresh": "重新整理",
+    "fetch": "抓取遠端",
+    "fetching": "抓取中…",
+    "matches": "{{count}} 筆符合",
+    "head": "HEAD"
+  },
   "menu": {
     "createBranchHere": "在這裡建立分支…",
     "createTagHere": "在這裡建立標籤…",
