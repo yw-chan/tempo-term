@@ -3,7 +3,6 @@ import { cursorPosition } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import { TerminalView } from "./TerminalView";
-import { PaneToolbar } from "./PaneToolbar";
 import { dropPathsIntoTerminal, writeToTerminal } from "./lib/terminalBus";
 import {
   computeLayout,
@@ -15,6 +14,7 @@ import { EditorTabContent } from "@/modules/editor/EditorTabContent";
 import { NoteTabContent } from "@/modules/notes/NoteTabContent";
 import { PreviewTabContent } from "@/modules/preview/PreviewTabContent";
 import { GitGraphTabContent } from "@/modules/git-graph/GitGraphTabContent";
+import { LauncherPanel } from "@/components/LauncherPanel";
 import { dropOverlayClassName, useEntryDragging } from "@/components/EntryDropOverlay";
 import {
   fileUrl,
@@ -61,7 +61,11 @@ export function PaneTabContent({ tab }: { tab: Tab }) {
   const multiple = panes.length > 1;
 
   // Single-file panes (editor/preview) reject folders; terminal/note take both.
+  // A launcher pane has nothing to drop onto yet.
   function canDrop(content: PaneContent, entry: DraggedEntry): boolean {
+    if (content.kind === "launcher") {
+      return false;
+    }
     if (content.kind === "editor" || content.kind === "preview") {
       return !entry.isDir;
     }
@@ -204,10 +208,6 @@ export function PaneTabContent({ tab }: { tab: Tab }) {
 
   return (
     <div className="flex h-full flex-col bg-bg-inset">
-      <div className="flex h-7 shrink-0 items-center justify-end gap-0.5 border-b border-border px-2">
-        <PaneToolbar tabId={tab.id} leafId={tab.activeLeafId} />
-      </div>
-
       <div ref={paneAreaRef} className="relative min-h-0 flex-1">
         {panes.map((pane) => {
           const active = pane.id === tab.activeLeafId;
@@ -251,6 +251,10 @@ export function PaneTabContent({ tab }: { tab: Tab }) {
                 <PreviewTabContent url={pane.content.url} />
               ) : pane.content.kind === "git-graph" ? (
                 <GitGraphTabContent />
+              ) : pane.content.kind === "launcher" ? (
+                <LauncherPanel
+                  target={{ mode: "replacePane", tabId: tab.id, leafId: pane.id }}
+                />
               ) : (
                 <TerminalView
                   active={active}

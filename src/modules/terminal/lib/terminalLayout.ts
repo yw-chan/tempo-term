@@ -7,13 +7,17 @@
 
 export type SplitDirection = "row" | "col";
 
-/** What a leaf pane shows: a terminal, an open file, a note, a preview, or the git graph. */
+/**
+ * What a leaf pane shows: a terminal, an open file, a note, a preview, the git
+ * graph, or the launcher (a freshly split pane that hasn't been chosen yet).
+ */
 export type PaneContent =
   | { kind: "terminal" }
   | { kind: "editor"; path: string }
   | { kind: "note"; noteId: string }
   | { kind: "preview"; url: string }
-  | { kind: "git-graph" };
+  | { kind: "git-graph" }
+  | { kind: "launcher" };
 
 export const TERMINAL_PANE: PaneContent = { kind: "terminal" };
 
