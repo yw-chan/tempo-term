@@ -666,6 +666,54 @@ pub fn reset(repo_path: &str, commit: &str, mode: Option<&str>) -> Result<(), St
     run_git(repo_path, &["reset", flag, commit]).map(|_| ())
 }
 
+/// 一個 commit 的完整訊息與變更檔案。檔案清單對第一個 parent 取差異，
+/// 一般 commit 等同 `git show`，merge 顯示相對主線帶進來的變更。
+/// root commit(無 parent)退回 `--root` 模式。
+pub fn commit_details(repo_path: &str, commit: &str) -> Result<CommitDetails, String> {
+    let commit = commit.trim();
+    if commit.is_empty() {
+        return Err("commit hash is required".to_string());
+    }
+    ensure_not_flag(commit)?;
+
+    let message = run_git(repo_path, &["show", "-s", "--format=%B", commit])?
+        .trim_end()
+        .to_string();
+
+    let parent = format!("{commit}^1");
+    let name_status = run_git(repo_path, &["diff", "--name-status", &parent, commit])
+        .or_else(|_| {
+            // root commit 沒有 parent，整個 commit 當成新增。
+            run_git(
+                repo_path,
+                &["show", "--name-status", "--format=", "--root", commit],
+            )
+        })
+        .unwrap_or_default();
+
+    let files = name_status
+        .lines()
+        .filter_map(parse_name_status_line)
+        .collect();
+
+    Ok(CommitDetails { message, files })
+}
+
+/// 單一檔案在某 commit 的 diff(對第一個 parent)。回原始 unified diff 字串。
+pub fn commit_file_diff(repo_path: &str, commit: &str, file: &str) -> Result<String, String> {
+    let commit = commit.trim();
+    if commit.is_empty() {
+        return Err("commit hash is required".to_string());
+    }
+    ensure_not_flag(commit)?;
+
+    let parent = format!("{commit}^1");
+    let diff = run_git(repo_path, &["diff", &parent, commit, "--", file])
+        .or_else(|_| run_git(repo_path, &["show", "--root", commit, "--", file]))
+        .unwrap_or_default();
+    Ok(diff)
+}
+
 #[tauri::command]
 pub fn git_log(repo_path: String, limit: Option<usize>) -> Result<Vec<CommitInfo>, String> {
     log(&repo_path, limit.unwrap_or(50))
@@ -754,6 +802,20 @@ pub fn git_cherry_pick(repo_path: String, commit: String) -> Result<(), String> 
 #[tauri::command]
 pub fn git_reset(repo_path: String, commit: String, mode: Option<String>) -> Result<(), String> {
     reset(&repo_path, &commit, mode.as_deref())
+}
+
+#[tauri::command]
+pub fn git_commit_details(repo_path: String, commit: String) -> Result<CommitDetails, String> {
+    commit_details(&repo_path, &commit)
+}
+
+#[tauri::command]
+pub fn git_commit_file_diff(
+    repo_path: String,
+    commit: String,
+    file: String,
+) -> Result<String, String> {
+    commit_file_diff(&repo_path, &commit, &file)
 }
 
 #[cfg(test)]
