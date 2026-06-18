@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Resizer } from "@/components/Resizer";
@@ -64,13 +64,19 @@ export function CommitDetailsPanel({ repo, commit, onClose, labels }: CommitDeta
     return Number.isFinite(v) && v > 0 ? v : 280;
   });
 
+  const leftWidthRef = useRef(leftWidth);
+  leftWidthRef.current = leftWidth;
+
   const { i18n } = useTranslation("gitGraph");
   const providerId = useChatStore((s) => s.providerId);
   const model = useChatStore((s) => s.model);
 
   const persistLeftWidth = useCallback(() => {
-    localStorage.setItem("tempoterm-gitgraph-details-left-width", String(leftWidth));
-  }, [leftWidth]);
+    localStorage.setItem(
+      "tempoterm-gitgraph-details-left-width",
+      String(leftWidthRef.current),
+    );
+  }, []);
 
   // Load message + changed files when the commit changes; auto-open first file.
   useEffect(() => {
