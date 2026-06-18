@@ -5,6 +5,7 @@ import {
   FolderOpen,
   Globe,
   SquareTerminal,
+  Waypoints,
   type LucideIcon,
 } from "lucide-react";
 import { useTabsStore } from "@/stores/tabsStore";
@@ -56,6 +57,7 @@ export function LauncherPanel({ target }: LauncherPanelProps) {
   const openEditorTab = useTabsStore((s) => s.openEditorTab);
   const openNoteTab = useTabsStore((s) => s.openNoteTab);
   const openPreviewTab = useTabsStore((s) => s.openPreviewTab);
+  const openGitGraphTab = useTabsStore((s) => s.openGitGraphTab);
   const setPaneContent = useTabsStore((s) => s.setPaneContent);
   const closeTab = useTabsStore((s) => s.closeTab);
   const setRoot = useWorkspaceStore((s) => s.setRoot);
@@ -85,6 +87,8 @@ export function LauncherPanel({ target }: LauncherPanelProps) {
         openPreviewTab(content.url);
         break;
       case "git-graph":
+        openGitGraphTab();
+        break;
       case "launcher":
         break;
     }
@@ -150,6 +154,12 @@ export function LauncherPanel({ target }: LauncherPanelProps) {
           label: t("preview:title"),
           icon: Globe,
           run: () => apply({ kind: "preview", url: DEFAULT_PREVIEW_URL }),
+        },
+        {
+          key: "git-graph",
+          label: t("nav.gitGraph"),
+          icon: Waypoints,
+          run: () => apply({ kind: "git-graph" }),
         },
       ],
     },
