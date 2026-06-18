@@ -12,6 +12,14 @@ vi.mock("@tauri-apps/api/app", () => ({
 describe("AboutSettingsSection", () => {
   it("shows the app version reported by the Tauri runtime", async () => {
     render(<AboutSettingsSection />);
-    expect(await screen.findByText(/v0\.0\.1/)).toBeInTheDocument();
+    // Version appears in both the identity card and the build line.
+    const matches = await screen.findAllByText(/v0\.0\.1/);
+    expect(matches.length).toBeGreaterThan(0);
+  });
+
+  it("shows the bundle id and a source-code link", () => {
+    render(<AboutSettingsSection />);
+    expect(screen.getByText("com.tempoterm.desktop")).toBeInTheDocument();
+    expect(screen.getByText("mukiwu/tempo-term")).toBeInTheDocument();
   });
 });

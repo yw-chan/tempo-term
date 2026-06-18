@@ -11,7 +11,12 @@
   "about": {
     "appName": "TempoTerm",
     "tagline": "整合 AI 的終端機、編輯器與檔案總管",
-    "version": "版本"
+    "version": "版本",
+    "platform": "支援平台",
+    "bundleId": "套件識別碼",
+    "sourceCode": "原始碼",
+    "viewOnGitHub": "在 GitHub 查看",
+    "reportIssue": "回報問題"
   },
   "update": {
     "available": "有新版本 v{{version}}",

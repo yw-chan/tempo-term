@@ -22,6 +22,22 @@ use modules::pty::{
     pty_shell_name, pty_write, PtyState,
 };
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppBuildInfo {
+    os: String,
+    arch: String,
+}
+
+/// OS and CPU arch the app was compiled for, for the About panel's build line.
+#[tauri::command]
+fn app_build_info() -> AppBuildInfo {
+    AppBuildInfo {
+        os: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -39,6 +55,7 @@ pub fn run() {
             pty_cwd,
             pty_close,
             pty_close_all,
+            app_build_info,
             terminal_clipboard_paths,
             terminal_clipboard_image_paths,
             terminal_clipboard_text,

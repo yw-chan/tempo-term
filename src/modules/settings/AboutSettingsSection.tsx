@@ -1,18 +1,26 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
-import { RefreshCw } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { ExternalLink, GitBranch, RefreshCw } from "lucide-react";
 import { useUpdaterStore } from "@/stores/updaterStore";
+import { appBuildInfo, osLabel, type AppBuildInfo } from "./buildInfo";
+
+const REPO_URL = "https://github.com/mukiwu/tempo-term";
+const ISSUES_URL = `${REPO_URL}/issues`;
+const BUNDLE_ID = "com.tempoterm.desktop";
+const REPO_LABEL = "mukiwu/tempo-term";
 
 /**
- * The "About" panel: app name, what it is, the running version, and a manual
- * "check for updates" control. The version is read from the Tauri runtime (the
- * single source of truth in tauri.conf.json) rather than hard-coded, so it
- * never drifts from the build.
+ * The "About" panel: an identity card (icon, name, tagline, version), build
+ * details (OS/arch/version, bundle id, source link), and actions (check for
+ * updates, open the repo, report an issue). Version and OS/arch come from the
+ * Tauri runtime so they never drift from the actual build. No license line yet.
  */
 export function AboutSettingsSection() {
   const { t } = useTranslation("settings");
   const [version, setVersion] = useState<string | null>(null);
+  const [build, setBuild] = useState<AppBuildInfo | null>(null);
 
   const updaterStatus = useUpdaterStore((s) => s.status);
   const updaterVersion = useUpdaterStore((s) => s.version);
@@ -21,20 +29,25 @@ export function AboutSettingsSection() {
 
   useEffect(() => {
     let active = true;
+    // Outside the Tauri runtime (e.g. a plain web preview) these have no answer;
+    // leave them blank rather than surfacing an error.
     getVersion()
       .then((v) => {
-        if (active) {
-          setVersion(v);
-        }
+        if (active) setVersion(v);
       })
-      .catch(() => {
-        // Outside the Tauri runtime (e.g. a plain web preview) there is no
-        // version to report; leave it blank instead of surfacing an error.
-      });
+      .catch(() => {});
+    appBuildInfo()
+      .then((b) => {
+        if (active) setBuild(b);
+      })
+      .catch(() => {});
     return () => {
       active = false;
     };
   }, []);
+
+  const versionLabel = version ? `v${version}` : "—";
+  const platformLabel = build ? osLabel(build.os) : "—";
 
   const statusText = (() => {
     switch (updaterStatus) {
@@ -57,30 +70,63 @@ export function AboutSettingsSection() {
         {t("sections.about")}
       </h2>
 
-      <div className="rounded-lg border border-border bg-bg-inset px-5 py-5">
-        <div className="text-base font-semibold text-fg">{t("about.appName")}</div>
-        <p className="mt-1 text-sm text-fg-muted">{t("about.tagline")}</p>
-
-        <dl className="mt-5 space-y-2.5 text-sm">
-          <div className="flex items-center justify-between">
-            <dt className="text-fg-muted">{t("about.version")}</dt>
-            <dd className="font-mono text-fg">{version ? `v${version}` : "—"}</dd>
-          </div>
-        </dl>
-
-        <div className="mt-5 flex items-center justify-between border-t border-border pt-4">
-          <span className="text-xs text-fg-muted">{statusText}</span>
-          <button
-            type="button"
-            onClick={() => void checkForUpdate()}
-            disabled={updaterStatus === "checking"}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-fg transition-colors hover:border-border-strong disabled:opacity-50"
-          >
-            <RefreshCw size={13} className={updaterStatus === "checking" ? "animate-spin" : ""} />
-            {t("update.check")}
-          </button>
+      <div className="flex items-center gap-4 rounded-lg border border-border bg-bg-inset px-5 py-4">
+        <img src="/icon.png" alt={t("about.appName")} className="h-14 w-14 shrink-0 rounded-xl" />
+        <div className="min-w-0">
+          <div className="text-base font-semibold text-fg">{t("about.appName")}</div>
+          <p className="mt-0.5 truncate text-sm text-fg-muted">{t("about.tagline")}</p>
+          <p className="mt-1 font-mono text-xs text-fg-subtle">{versionLabel}</p>
         </div>
       </div>
+
+      <dl className="mt-5 grid grid-cols-[7rem_1fr] items-center gap-x-4 gap-y-3 text-sm">
+        <dt className="text-fg-muted">{t("about.platform")}</dt>
+        <dd className="font-mono text-fg">{platformLabel}</dd>
+
+        <dt className="text-fg-muted">{t("about.bundleId")}</dt>
+        <dd className="font-mono text-fg">{BUNDLE_ID}</dd>
+
+        <dt className="text-fg-muted">{t("about.sourceCode")}</dt>
+        <dd>
+          <button
+            type="button"
+            onClick={() => void openUrl(REPO_URL)}
+            className="inline-flex items-center gap-1.5 text-fg transition-colors hover:text-accent"
+          >
+            <GitBranch size={14} />
+            {REPO_LABEL}
+          </button>
+        </dd>
+      </dl>
+
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => void checkForUpdate()}
+          disabled={updaterStatus === "checking"}
+          className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3.5 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          <RefreshCw size={14} className={updaterStatus === "checking" ? "animate-spin" : ""} />
+          {t("update.check")}
+        </button>
+        <button
+          type="button"
+          onClick={() => void openUrl(REPO_URL)}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3.5 py-2 text-sm text-fg transition-colors hover:border-border-strong"
+        >
+          <ExternalLink size={14} />
+          {t("about.viewOnGitHub")}
+        </button>
+        <button
+          type="button"
+          onClick={() => void openUrl(ISSUES_URL)}
+          className="text-sm text-fg-muted transition-colors hover:text-fg"
+        >
+          {t("about.reportIssue")}
+        </button>
+      </div>
+
+      {statusText && <p className="mt-3 text-xs text-fg-muted">{statusText}</p>}
     </section>
   );
 }

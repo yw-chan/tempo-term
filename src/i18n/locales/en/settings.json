@@ -11,7 +11,12 @@
   "about": {
     "appName": "TempoTerm",
     "tagline": "AI-powered terminal, editor and file explorer",
-    "version": "Version"
+    "version": "Version",
+    "platform": "Platform",
+    "bundleId": "Bundle ID",
+    "sourceCode": "Source code",
+    "viewOnGitHub": "View on GitHub",
+    "reportIssue": "Report an issue"
   },
   "update": {
     "available": "Update available: v{{version}}",

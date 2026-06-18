@@ -166,7 +166,7 @@ export function SettingsView() {
   const [section, setSection] = useState<SectionId>("appearance");
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full w-full">
       <nav className="w-48 shrink-0 border-r border-border bg-bg-inset p-3">
         <h1 className="mb-4 px-2 text-base font-semibold text-fg">
           {t("title")}
@@ -195,7 +195,9 @@ export function SettingsView() {
         {/* Shortcuts read better edge-to-edge; the rest stay in a reading column */}
         <div
           className={
-            section === "shortcuts" || section === "appearance" ? "" : "mx-auto max-w-2xl"
+            section === "shortcuts" || section === "appearance" || section === "about"
+              ? ""
+              : "mx-auto max-w-2xl"
           }
         >
           {section === "appearance" && <AppearanceSection />}
