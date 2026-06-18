@@ -10,10 +10,12 @@ import {
   Undo2,
 } from "lucide-react";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { Resizer } from "@/components/Resizer";
 import { gitResolveRepo } from "@/modules/source-control/lib/gitBridge";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { GitGraph, type GitGraphLabels } from "./GitGraph";
 import { CommitInputModal, type InputField } from "./CommitInputModal";
+import { CommitDetailsPanel, type CommitDetailsLabels } from "./CommitDetailsPanel";
 import {
   gitBranchCheckout,
   gitBranchCreateAt,
@@ -66,6 +68,10 @@ export function GitGraphTabContent() {
   const [hasMore, setHasMore] = useState(false);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [selected, setSelected] = useState<CommitNode | null>(null);
+  const [detailsHeight, setDetailsHeight] = useState<number>(() => {
+    const v = Number(localStorage.getItem("tempoterm-gitgraph-details-height"));
+    return Number.isFinite(v) && v > 0 ? v : 280;
+  });
   const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [modal, setModal] = useState<ModalState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -223,11 +229,25 @@ export function GitGraphTabContent() {
     head: t("toolbar.head"),
   };
 
+  const persistDetailsHeight = useCallback(() => {
+    localStorage.setItem("tempoterm-gitgraph-details-height", String(detailsHeight));
+  }, [detailsHeight]);
+
   const labels: GitGraphLabels = {
     emptyTitle: t("empty.title"),
     emptyHint: t("empty.hint"),
     loadMore: t("loadMore"),
     refHint: t("refHint"),
+  };
+
+  const detailsLabels: CommitDetailsLabels = {
+    author: t("details.author"),
+    date: t("details.date"),
+    changedFiles: t("details.changedFiles"),
+    noChanges: t("details.noChanges"),
+    noDiff: t("details.noDiff"),
+    noFileSelected: t("details.noFileSelected"),
+    close: t("details.close"),
   };
 
   // Build the right-click menu for a commit node.
@@ -405,19 +425,40 @@ export function GitGraphTabContent() {
         />
       </div>
 
-      <div className="min-h-0 flex-1">
-        <GitGraph
-          commits={visibleCommits}
-          selectedCommit={selected}
-          onSelectCommit={setSelected}
-          onCommitContextMenu={(commit, x, y) =>
-            setMenu({ type: "commit", commit, x, y })
-          }
-          onRefContextMenu={(ref, x, y) => setMenu({ type: "ref", ref, x, y })}
-          hasMore={hasMore}
-          onLoadMore={loadMore}
-          labels={labels}
-        />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1">
+          <GitGraph
+            commits={visibleCommits}
+            selectedCommit={selected}
+            onSelectCommit={setSelected}
+            onCommitContextMenu={(commit, x, y) =>
+              setMenu({ type: "commit", commit, x, y })
+            }
+            onRefContextMenu={(ref, x, y) => setMenu({ type: "ref", ref, x, y })}
+            hasMore={hasMore}
+            onLoadMore={loadMore}
+            labels={labels}
+          />
+        </div>
+        {selected && repo && (
+          <>
+            <Resizer
+              orientation="horizontal"
+              onResize={(delta) =>
+                setDetailsHeight((h) => Math.min(700, Math.max(120, h - delta)))
+              }
+              onResizeEnd={persistDetailsHeight}
+            />
+            <div style={{ height: `${detailsHeight}px` }} className="shrink-0">
+              <CommitDetailsPanel
+                repo={repo}
+                commit={selected}
+                onClose={() => setSelected(null)}
+                labels={detailsLabels}
+              />
+            </div>
+          </>
+        )}
       </div>
 
       {menu &&
