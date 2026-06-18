@@ -14,7 +14,7 @@ TempoTerm is a desktop app built on Tauri 2 + Rust and React 19. It pairs a nati
 
 <div align="center">
 
-<img src="docs/screenshots/hero.png" alt="TempoTerm workspace: terminal, editor, file explorer and AI assistant in one window" width="860" />
+<img src="screenshots/hero.png" alt="TempoTerm workspace: terminal, editor, file explorer and AI assistant in one window" width="860" />
 
 </div>
 
@@ -28,8 +28,6 @@ TempoTerm is a desktop app built on Tauri 2 + Rust and React 19. It pairs a nati
 - Standard editing shortcuts that carry over from other terminals: Shift+Enter, word and line navigation, delete to line start/end, copy and paste
 - Unicode 11 width tables so full-width CJK glyphs stay aligned
 
-![Free split layout mixing a terminal and a code editor](docs/screenshots/terminal-split.png)
-
 ### Editor
 
 - CodeMirror 6 with syntax highlighting
@@ -42,14 +40,14 @@ TempoTerm is a desktop app built on Tauri 2 + Rust and React 19. It pairs a nati
 - Right-click context menu: open, reveal in Finder, new file or folder, copy path, attach to the AI agent, delete to trash
 - Drag a file or folder onto any pane, with behavior per pane type
 
-![Fuzzy file finder](docs/screenshots/fuzzy-find.png)
+![Fuzzy file finder](screenshots/fuzzy-find.png)
 
 ### Source control
 
 - Status, stage, unstage, commit and push
 - Git history with a commit graph
 
-![Git commit graph](docs/screenshots/git-graph.png)
+![Git commit graph](screenshots/git-graph.png)
 
 ### Web preview
 
@@ -67,7 +65,7 @@ TempoTerm is a desktop app built on Tauri 2 + Rust and React 19. It pairs a nati
 - Keys are stored in the OS keychain and never returned to the webview
 - Replies render as Markdown; attach files from the explorer as context
 
-![AI assistant panel with a Markdown reply](docs/screenshots/ai-assistant.png)
+![AI assistant panel with a Markdown reply](screenshots/ai-assistant.png)
 
 ### Themes and languages
 
@@ -75,7 +73,7 @@ TempoTerm is a desktop app built on Tauri 2 + Rust and React 19. It pairs a nati
 - Full English and Traditional Chinese UI, switchable on the fly
 - CJK-friendly terminal font settings
 
-![Theme and language settings](docs/screenshots/themes.png)
+![Theme and language settings](screenshots/themes.png)
 
 ## Tech stack
 
