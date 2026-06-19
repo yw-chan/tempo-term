@@ -38,6 +38,12 @@ fn read_new_lines(path: &Path, from_offset: usize) -> (Vec<String>, usize) {
     }
 }
 
+/// Byte length of a file, or 0 if it cannot be read. Used to start tailing at the
+/// end of an existing transcript so old history is never replayed.
+fn byte_len(path: &Path) -> usize {
+    std::fs::read_to_string(path).map_or(0, |contents| contents.len())
+}
+
 /// Mangle a working directory into the folder name Claude Code stores its
 /// transcripts under (every non-alphanumeric character becomes a dash), e.g.
 /// `/Users/me/01.project` -> `-Users-me-01-project`.
@@ -64,9 +70,15 @@ fn latest_transcript(dir: &Path) -> Option<PathBuf> {
     newest.map(|(_, path)| path)
 }
 
-/// Holds the active transcript watcher. Dropping the watcher (replacing it with
-/// `None`) stops the OS-level subscription, so only one transcript is watched at
-/// a time.
+/// Which transcript we are tailing and how far we have read. Shared with the
+/// notify callback so it can follow the directory's newest session over time.
+struct WatchCursor {
+    current: Option<PathBuf>,
+    offset: usize,
+}
+
+/// Holds the active directory watcher. Dropping it (replacing with `None`) stops
+/// the OS-level subscription, so only one project directory is watched at a time.
 pub struct ClaudeProgressState {
     watcher: Mutex<Option<RecommendedWatcher>>,
 }
@@ -85,9 +97,10 @@ impl Default for ClaudeProgressState {
     }
 }
 
-/// Start streaming the most recent transcript for `cwd`: emit everything already
-/// in it, then watch it and emit each batch of newly appended lines. Returns the
-/// watched transcript path, or `None` if that project has no session yet.
+/// Stream Claude progress for `cwd`. Watches that project's transcript directory
+/// and follows its newest session: tailing only lines appended from now on, and
+/// switching (reading from the start) whenever a newer session file appears.
+/// Returns the transcript currently being followed, or `None` if there is none.
 #[tauri::command]
 pub fn claude_progress_watch(
     app: AppHandle,
@@ -96,32 +109,40 @@ pub fn claude_progress_watch(
 ) -> Result<Option<String>, String> {
     let home = app.path().home_dir().map_err(|e| e.to_string())?;
     let dir = home.join(".claude").join("projects").join(mangle_cwd(&cwd));
-    let path = match latest_transcript(&dir) {
-        Some(path) => path,
-        None => {
-            // No session for this directory yet; stop any previous watch.
-            *state.watcher.lock().unwrap() = None;
-            return Ok(None);
-        }
-    };
-
-    // Catch up on everything already written before watching for changes.
-    let (initial_lines, initial_offset) = read_new_lines(&path, 0);
-    if !initial_lines.is_empty() {
-        let _ = app.emit(PROGRESS_EVENT, &initial_lines);
+    if !dir.is_dir() {
+        // No project history yet; stop any previous watch and report nothing.
+        *state.watcher.lock().unwrap() = None;
+        return Ok(None);
     }
 
+    // Start at the END of the current newest transcript so an old, already
+    // finished session is never replayed into the panel. Only progress that
+    // happens from now on is streamed.
+    let current = latest_transcript(&dir);
+    let offset = current.as_deref().map(byte_len).unwrap_or(0);
+    let watched = current.as_ref().map(|p| p.to_string_lossy().into_owned());
+    let cursor = Arc::new(Mutex::new(WatchCursor { current, offset }));
+
     let app_cb = app.clone();
-    let path_cb = path.clone();
-    let offset = Arc::new(Mutex::new(initial_offset));
+    let dir_cb = dir.clone();
+    let cursor_cb = Arc::clone(&cursor);
 
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         if res.is_err() {
             return;
         }
-        let mut offset = offset.lock().unwrap();
-        let (lines, new_offset) = read_new_lines(&path_cb, *offset);
-        *offset = new_offset;
+        let latest = match latest_transcript(&dir_cb) {
+            Some(path) => path,
+            None => return,
+        };
+        let mut cursor = cursor_cb.lock().unwrap();
+        if cursor.current.as_ref() != Some(&latest) {
+            // A newer session started: follow it from the beginning.
+            cursor.current = Some(latest.clone());
+            cursor.offset = 0;
+        }
+        let (lines, new_offset) = read_new_lines(&latest, cursor.offset);
+        cursor.offset = new_offset;
         if !lines.is_empty() {
             let _ = app_cb.emit(PROGRESS_EVENT, &lines);
         }
@@ -129,11 +150,11 @@ pub fn claude_progress_watch(
     .map_err(|e| e.to_string())?;
 
     watcher
-        .watch(&path, RecursiveMode::NonRecursive)
+        .watch(&dir, RecursiveMode::NonRecursive)
         .map_err(|e| e.to_string())?;
 
     *state.watcher.lock().unwrap() = Some(watcher);
-    Ok(Some(path.to_string_lossy().into_owned()))
+    Ok(watched)
 }
 
 /// Stop streaming the current transcript (if any).
@@ -165,6 +186,14 @@ mod tests {
         let (lines, offset) = split_new_lines("abc", 0);
         assert!(lines.is_empty());
         assert_eq!(offset, 0);
+    }
+
+    #[test]
+    fn starting_at_the_end_of_a_file_yields_no_history() {
+        let contents = "a\nb\nc\n";
+        let (lines, offset) = split_new_lines(contents, contents.len());
+        assert!(lines.is_empty());
+        assert_eq!(offset, contents.len());
     }
 
     #[test]
