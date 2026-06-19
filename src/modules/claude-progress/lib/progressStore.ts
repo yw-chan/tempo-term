@@ -9,8 +9,11 @@ interface ProgressStoreState {
   panelOpen: boolean;
   setPanelOpen: (open: boolean) => void;
   togglePanel: () => void;
-  /** Feed raw transcript lines (from the backend watcher) for one cwd. */
-  pushLines: (cwd: string, lines: string[]) => void;
+  /**
+   * Feed raw transcript lines (from the backend watcher) for one cwd. `reset`
+   * marks the first batch of a newly started session, clearing prior progress.
+   */
+  pushLines: (cwd: string, lines: string[], reset: boolean) => void;
   /** Keep only the sessions for `cwds`; drop progress for directories no longer watched. */
   syncSessions: (cwds: string[]) => void;
 }
@@ -35,16 +38,27 @@ export const useProgressStore = create<ProgressStoreState>((set) => ({
   setPanelOpen: (panelOpen) => set({ panelOpen }),
   togglePanel: () => set((state) => ({ panelOpen: !state.panelOpen })),
 
-  pushLines: (cwd, lines) =>
+  pushLines: (cwd, lines, reset) =>
     set((state) => {
+      // A reset means the backend switched this cwd to a new session: start its
+      // normalizer and accumulated state fresh so the old session's leftovers
+      // (e.g. a tool that never finished) can't linger forever.
+      if (reset) {
+        normalizers.set(cwd, createNormalizer());
+      }
       const normalizer = normalizerFor(cwd);
-      let next = state.sessions[cwd] ?? emptyProgressState();
+      const previous = reset ? undefined : state.sessions[cwd];
+      let next = previous ?? emptyProgressState();
       for (const line of lines) {
         for (const event of normalizer.push(line)) {
           next = reduceProgress(next, event);
         }
       }
-      if (next === state.sessions[cwd]) {
+      if (next === previous) {
+        return {};
+      }
+      // Don't materialize an empty session for a cwd whose lines produced nothing.
+      if (!reset && previous === undefined && isEmptyProgress(next)) {
         return {};
       }
       return { sessions: { ...state.sessions, [cwd]: next } };

@@ -3,11 +3,7 @@ import { Check, ChevronDown, ChevronRight, CircleDot, Loader2, Square, X } from 
 import { activeCount, isEmptyProgress, useProgressStore } from "./lib/progressStore";
 import type { ProgressState, SubagentProgress } from "./lib/progressState";
 import type { TodoItem } from "./lib/normalize";
-
-function basename(path: string): string {
-  const seg = path.replace(/\/+$/, "").split("/").pop();
-  return seg && seg.length > 0 ? seg : path;
-}
+import { basename } from "@/modules/explorer/lib/paths";
 
 function Subagent({ sub }: { sub: SubagentProgress }) {
   const running = sub.status === "running";

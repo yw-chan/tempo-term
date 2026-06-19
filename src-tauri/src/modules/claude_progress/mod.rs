@@ -19,6 +19,9 @@ const PROGRESS_EVENT: &str = "claude-progress:lines";
 struct ProgressBatch {
     cwd: String,
     lines: Vec<String>,
+    /// True for the first batch of a newly started session, telling the frontend
+    /// to clear this cwd's accumulated progress before applying these lines.
+    reset: bool,
 }
 
 /// Splits out the complete lines that appear after `from_offset` (a byte index
@@ -26,7 +29,14 @@ struct ProgressBatch {
 /// tailing a file mid-write never yields a half-written JSON line. Returns the
 /// new lines and the byte offset to resume from next time.
 pub fn split_new_lines(contents: &str, from_offset: usize) -> (Vec<String>, usize) {
-    let start = if from_offset > contents.len() { 0 } else { from_offset };
+    // Fall back to the start if the offset is past the end (file shrank) or lands
+    // mid-character (an in-place rewrite changed bytes under a multibyte char),
+    // so slicing a &str never panics on a non-char-boundary index.
+    let start = if from_offset > contents.len() || !contents.is_char_boundary(from_offset) {
+        0
+    } else {
+        from_offset
+    };
     match contents[start..].rfind('\n') {
         Some(idx) => {
             let end = start + idx + 1;
@@ -83,6 +93,10 @@ fn latest_transcript(dir: &Path) -> Option<PathBuf> {
 struct WatchCursor {
     current: Option<PathBuf>,
     offset: usize,
+    /// Set when we switch to a newer session file; carried until the next
+    /// non-empty batch so the frontend gets a reset flag even if the switch and
+    /// the first new lines land on different filesystem events.
+    pending_reset: bool,
 }
 
 /// Build a watcher for one project directory. It follows the directory's newest
@@ -92,7 +106,11 @@ struct WatchCursor {
 fn build_watcher(app: &AppHandle, dir: &Path, cwd: String) -> Result<RecommendedWatcher, String> {
     let current = latest_transcript(dir);
     let offset = current.as_deref().map(byte_len).unwrap_or(0);
-    let cursor = Arc::new(Mutex::new(WatchCursor { current, offset }));
+    let cursor = Arc::new(Mutex::new(WatchCursor {
+        current,
+        offset,
+        pending_reset: false,
+    }));
 
     let app_cb = app.clone();
     let dir_cb = dir.to_path_buf();
@@ -110,15 +128,19 @@ fn build_watcher(app: &AppHandle, dir: &Path, cwd: String) -> Result<Recommended
         if cursor.current.as_ref() != Some(&latest) {
             cursor.current = Some(latest.clone());
             cursor.offset = 0;
+            cursor.pending_reset = true;
         }
         let (lines, new_offset) = read_new_lines(&latest, cursor.offset);
         cursor.offset = new_offset;
         if !lines.is_empty() {
+            let reset = cursor.pending_reset;
+            cursor.pending_reset = false;
             let _ = app_cb.emit(
                 PROGRESS_EVENT,
                 ProgressBatch {
                     cwd: cwd.clone(),
                     lines,
+                    reset,
                 },
             );
         }
@@ -230,5 +252,13 @@ mod tests {
     #[test]
     fn mangles_a_cwd_into_a_projects_folder_name() {
         assert_eq!(mangle_cwd("/Users/me/01.project"), "-Users-me-01-project");
+    }
+
+    #[test]
+    fn does_not_panic_on_a_non_char_boundary_offset() {
+        // "中" is 3 bytes; offset 1 lands mid-character. Must fall back to the
+        // start instead of panicking on a non-char-boundary slice.
+        let (lines, _) = split_new_lines("中\n", 1);
+        assert_eq!(lines, vec!["中"]);
     }
 }
