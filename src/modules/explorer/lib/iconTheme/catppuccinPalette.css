@@ -1,0 +1,46 @@
+/*
+ * Catppuccin accent palette for the vendored file icons.
+ * The css-variables SVGs colour their strokes with var(--vscode-ctp-*); we
+ * define those here so icons recolour with the app's light/dark appearance:
+ * dark themes -> Mocha, light themes -> Latte.
+ * applyTheme() sets data-appearance on the root element.
+ * Palette values: https://catppuccin.com/palette (MIT).
+ */
+
+[data-appearance="dark"] {
+  --vscode-ctp-rosewater: #f2d5cf;
+  --vscode-ctp-flamingo: #eebebe;
+  --vscode-ctp-pink: #f4b8e4;
+  --vscode-ctp-mauve: #ca9ee6;
+  --vscode-ctp-red: #e78284;
+  --vscode-ctp-maroon: #ea999c;
+  --vscode-ctp-peach: #ef9f76;
+  --vscode-ctp-yellow: #e5c890;
+  --vscode-ctp-green: #a6d189;
+  --vscode-ctp-teal: #81c8be;
+  --vscode-ctp-sky: #99d1db;
+  --vscode-ctp-sapphire: #85c1dc;
+  --vscode-ctp-blue: #8caaee;
+  --vscode-ctp-lavender: #babbf1;
+  --vscode-ctp-text: #c6d0f5;
+  --vscode-ctp-overlay1: #838ba7;
+}
+
+[data-appearance="light"] {
+  --vscode-ctp-rosewater: #dc8a78;
+  --vscode-ctp-flamingo: #dd7878;
+  --vscode-ctp-pink: #ea76cb;
+  --vscode-ctp-mauve: #8839ef;
+  --vscode-ctp-red: #d20f39;
+  --vscode-ctp-maroon: #e64553;
+  --vscode-ctp-peach: #fe640b;
+  --vscode-ctp-yellow: #df8e1d;
+  --vscode-ctp-green: #40a02b;
+  --vscode-ctp-teal: #179299;
+  --vscode-ctp-sky: #04a5e5;
+  --vscode-ctp-sapphire: #209fb5;
+  --vscode-ctp-blue: #1e66f5;
+  --vscode-ctp-lavender: #7287fd;
+  --vscode-ctp-text: #4c4f69;
+  --vscode-ctp-overlay1: #8c8fa1;
+}
