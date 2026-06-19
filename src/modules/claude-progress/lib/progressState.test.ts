@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyProgressState, MAX_ACTIVITIES, reduceProgress } from "./progressState";
+import { deriveStatus, emptyProgressState, MAX_ACTIVITIES, reduceProgress } from "./progressState";
 
 describe("reduceProgress", () => {
   it("adds a started tool to activities as running", () => {
@@ -144,5 +144,23 @@ describe("reduceProgress", () => {
     const next = reduceProgress(state, { kind: "idle" });
 
     expect(next).toBe(state);
+  });
+
+  it("derives active when a tool or subagent is running", () => {
+    const state = reduceProgress(emptyProgressState(), { kind: "tool:start", id: "t1", name: "Bash" });
+    expect(deriveStatus(state)).toBe("active");
+  });
+
+  it("derives idle when idle and nothing is running", () => {
+    let state = reduceProgress(emptyProgressState(), { kind: "tool:start", id: "t1", name: "Bash" });
+    state = reduceProgress(state, { kind: "tool:end", id: "t1", name: "Bash", ok: true });
+    state = reduceProgress(state, { kind: "idle" });
+    expect(deriveStatus(state)).toBe("idle");
+  });
+
+  it("derives thinking when there is history but nothing running and not idle", () => {
+    let state = reduceProgress(emptyProgressState(), { kind: "tool:start", id: "t1", name: "Bash" });
+    state = reduceProgress(state, { kind: "tool:end", id: "t1", name: "Bash", ok: true });
+    expect(deriveStatus(state)).toBe("thinking");
   });
 });

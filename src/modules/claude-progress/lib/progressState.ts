@@ -114,4 +114,21 @@ function todosEqual(a: TodoItem[], b: TodoItem[]): boolean {
   return a.every((item, index) => item.text === b[index].text && item.status === b[index].status);
 }
 
+/**
+ * The session's coarse state for the panel header: actively running a tool or
+ * subagent, finished and waiting for input (idle), or thinking between actions.
+ */
+export function deriveStatus(progress: ProgressState): "active" | "thinking" | "idle" {
+  const running =
+    progress.activities.some((activity) => activity.status === "running") ||
+    progress.subagents.some((subagent) => subagent.status === "running");
+  if (running) {
+    return "active";
+  }
+  if (progress.idle) {
+    return "idle";
+  }
+  return "thinking";
+}
+
 export type { TodoItem };
