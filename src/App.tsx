@@ -14,6 +14,9 @@ import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { pruneTerminalHistory } from "@/modules/terminal/lib/terminalHistory";
 import { leafIds } from "@/modules/terminal/lib/terminalLayout";
 import { applyTheme, getTheme } from "@/themes/themes";
+import { listen } from "@tauri-apps/api/event";
+import { ClaudeProgressPanel } from "@/modules/claude-progress/ClaudeProgressPanel";
+import { useProgressStore } from "@/modules/claude-progress/lib/progressStore";
 
 const MIN_SIDEBAR = 180;
 const MAX_SIDEBAR = 640;
@@ -50,6 +53,17 @@ function App() {
       void useUpdaterStore.getState().checkForUpdate({ silent: true });
     }, 5000);
     return () => clearTimeout(timer);
+  }, []);
+
+  // Stream Claude Code progress: the backend watcher emits appended transcript
+  // lines, which we feed through the normalizer into the progress store.
+  useEffect(() => {
+    const unlisten = listen<string[]>("claude-progress:lines", (event) => {
+      useProgressStore.getState().pushLines(event.payload);
+    });
+    return () => {
+      void unlisten.then((off) => off());
+    };
   }, []);
 
   // Global keyboard shortcuts.
@@ -114,6 +128,7 @@ function App() {
       </div>
 
       <StatusBar />
+      <ClaudeProgressPanel />
       {settingsOpen && <SettingsModal />}
       <UpdateModal />
     </div>
