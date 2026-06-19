@@ -1,5 +1,7 @@
 mod modules;
 
+use tauri::Manager;
+
 use modules::fonts::fonts_report;
 use modules::fs::{
     fs_create_dir, fs_create_file, fs_delete, fs_grep, fs_home_dir, fs_list_files, fs_read_dir,
@@ -59,12 +61,30 @@ pub fn run() {
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(
                     tauri_plugin_window_state::StateFlags::SIZE
-                        | tauri_plugin_window_state::StateFlags::POSITION,
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
                 )
                 .build(),
         )
         .manage(PtyState::new())
         .manage(ClaudeProgressState::new())
+        .setup(|app| {
+            // window-state restores the last size/position, but it can persist a
+            // corrupt tiny / off-screen value (observed 360x240 at a negative
+            // position) and restores it bypassing the configured minimums. Clamp
+            // anything below the minimums back to the default, centered, so the
+            // window can never shrink to nothing or get lost off-screen.
+            if let Some(window) = app.get_webview_window("main") {
+                if let (Ok(size), Ok(scale)) = (window.inner_size(), window.scale_factor()) {
+                    let logical = size.to_logical::<f64>(scale);
+                    if logical.width < 720.0 || logical.height < 480.0 {
+                        let _ = window.set_size(tauri::LogicalSize::new(1200.0, 800.0));
+                        let _ = window.center();
+                    }
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             pty_open,
             pty_write,
