@@ -24,6 +24,34 @@ describe("findFilePaths", () => {
     expect(findFilePaths("just some regular words here")).toEqual([]);
   });
 
+  it("matches a path whose filename contains CJK characters", () => {
+    const line = "exists docs/specs/2026-06-19-新點首頁三新風格EFG-design.md, checked";
+    const matches = findFilePaths(line);
+    expect(matches).toHaveLength(1);
+    expect(matches[0].text).toBe("docs/specs/2026-06-19-新點首頁三新風格EFG-design.md");
+  });
+
+  it("matches a path with a CJK directory segment", () => {
+    expect(findFilePaths("open 專案/notes.md").map((m) => m.text)).toEqual([
+      "專案/notes.md",
+    ]);
+  });
+
+  it("matches a space-delimited CJK filename cleanly", () => {
+    expect(findFilePaths("see 報告.md here").map((m) => m.text)).toEqual(["報告.md"]);
+  });
+
+  // Known limitation: CJK has no reliable word boundary, so prose written
+  // flush against an ASCII filename (no space) is swallowed into the token.
+  // Matching is deliberately broad and the click handler verifies the file
+  // exists, so the worst case is an underline that does nothing — documented
+  // here so the behaviour is intentional, not an accident.
+  it("over-matches CJK prose glued to a filename (documented limitation)", () => {
+    expect(findFilePaths("打開config.json").map((m) => m.text)).toEqual([
+      "打開config.json",
+    ]);
+  });
+
   it("ignores file-looking tokens inside a web URL but still finds real paths", () => {
     const matches = findFilePaths("see https://muki.tw/a.png and ./src/b.ts").map((m) => m.text);
     expect(matches).toContain("./src/b.ts");
