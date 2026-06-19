@@ -47,4 +47,10 @@ describe("withMinDuration", () => {
     const failing = Promise.reject(new Error("boom"));
     await expect(withMinDuration(failing, 1000)).rejects.toThrow("boom");
   });
+
+  it("leaves no pending timer once the work has rejected", async () => {
+    const failing = Promise.reject(new Error("boom"));
+    await expect(withMinDuration(failing, 1000)).rejects.toThrow("boom");
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
