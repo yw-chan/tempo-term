@@ -5,6 +5,14 @@ import type { Terminal } from "@xterm/xterm";
 export const MAX_SCROLLBACK_LINES = 1000;
 
 /**
+ * The line written between restored history and the live session. Doubles as the
+ * boundary marker for {@link dropRestoredPrefix}, so it is treated as a unique
+ * sentinel: written once on restore above the live output, and not expected to
+ * be emitted verbatim as its own line by a shell.
+ */
+export const SESSION_SEPARATOR = "── previous session ──";
+
+/**
  * Read the terminal buffer as plain logical lines (soft-wrapped rows joined back
  * into one line). Unlike a cell-exact serialization this carries no colour, but
  * it reflows cleanly when restored into a pane of any width, so resizing never
@@ -44,6 +52,32 @@ export function serializeBufferText(term: Terminal, maxLines?: number): string {
     lines.pop();
   }
   return lines.join("\n");
+}
+
+/**
+ * Strip the restored read-only history from a freshly serialized buffer so a
+ * snapshot only persists what the live shell produced this session.
+ *
+ * On pane open we prepend the previously saved scrollback (greyed) plus the
+ * {@link SESSION_SEPARATOR} line. Serializing the whole buffer would re-save that
+ * restored block, so each reopen would stack another duplicated copy. We anchor
+ * on the separator (the FIRST occurrence — the real boundary always sits above
+ * the live output) and keep only what follows it.
+ *
+ * Anchoring on the marker rather than a fixed line count is robust to xterm
+ * evicting the oldest rows once a long single session overflows its scrollback:
+ * if some restored rows scrolled out, the separator still marks the boundary and
+ * no live line is dropped; if the separator itself scrolled out, the buffer is
+ * already pure live output and is returned unchanged. When the separator is
+ * absent (first session, or fully evicted) the text is returned as-is.
+ */
+export function dropRestoredPrefix(text: string, separator: string): string {
+  const lines = text.split("\n");
+  const boundary = lines.indexOf(separator);
+  if (boundary === -1) {
+    return text;
+  }
+  return lines.slice(boundary + 1).join("\n");
 }
 
 /**
