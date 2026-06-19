@@ -49,7 +49,12 @@
     "checkout": "切換到此分支",
     "merge": "把 {{name}} 合併進目前分支",
     "deleteBranch": "刪除分支",
-    "deleteTag": "刪除標籤"
+    "deleteTag": "刪除標籤",
+    "checkoutCommit": "切換到此提交",
+    "mergeCommit": "把這次提交合併進目前分支",
+    "copyHash": "複製提交雜湊",
+    "copySubject": "複製提交標題",
+    "copyBranchName": "複製分支名稱"
   },
   "modal": {
     "cancel": "取消",

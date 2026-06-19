@@ -1,14 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  GitBranch,
-  GitCommit,
-  GitMerge,
-  RotateCcw,
-  Tag,
-  Trash2,
-  Undo2,
-} from "lucide-react";
+import { GitCommit } from "lucide-react";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { Resizer } from "@/components/Resizer";
 import { gitResolveRepo } from "@/modules/source-control/lib/gitBridge";
@@ -32,6 +24,7 @@ import {
 } from "./lib/gitGraphBridge";
 import { GitGraphToolbar, type GitGraphToolbarLabels } from "./GitGraphToolbar";
 import { filterCommits } from "./lib/filterCommits";
+import { buildCommitMenu, buildRefMenu } from "./lib/contextMenuItems";
 import { withMinDuration } from "@/lib/withMinDuration";
 import type { Branch, CommitNode, CommitRef, GraphOptions } from "./types";
 
@@ -278,134 +271,94 @@ export function GitGraphTabContent() {
     aiEmpty: t("details.aiEmpty"),
   };
 
-  // Build the right-click menu for a commit node.
-  const commitMenuItems = (commit: CommitNode): ContextMenuItem[] => [
-    {
-      id: "branchHere",
-      label: t("menu.createBranchHere"),
-      icon: GitBranch,
-      group: 0,
-      onSelect: () =>
-        setModal({
-          title: t("modal.createBranch.title"),
-          confirmLabel: t("modal.createBranch.confirm"),
-          fields: [
-            {
-              key: "name",
-              label: t("modal.branchName"),
-              placeholder: t("modal.branchPlaceholder"),
-              required: true,
-            },
-          ],
-          onConfirm: (values) =>
-            void runAction(() => gitBranchCreateAt(repo!, values.name, commit.hash)),
-        }),
-    },
-    {
-      id: "tagHere",
-      label: t("menu.createTagHere"),
-      icon: Tag,
-      group: 0,
-      onSelect: () =>
-        setModal({
-          title: t("modal.createTag.title"),
-          confirmLabel: t("modal.createTag.confirm"),
-          fields: [
-            {
-              key: "name",
-              label: t("modal.tagName"),
-              placeholder: t("modal.tagPlaceholder"),
-              required: true,
-            },
-            {
-              key: "message",
-              label: t("modal.tagMessage"),
-              placeholder: t("modal.tagMessagePlaceholder"),
-              multiline: true,
-            },
-          ],
-          onConfirm: (values) =>
-            void runAction(() =>
-              gitTagCreate(repo!, values.name, commit.hash, values.message),
-            ),
-        }),
-    },
-    {
-      id: "cherryPick",
-      label: t("menu.cherryPick"),
-      icon: GitCommit,
-      group: 1,
-      onSelect: () => void runAction(() => gitCherryPick(repo!, commit.hash)),
-    },
-    {
-      id: "revert",
-      label: t("menu.revert"),
-      icon: Undo2,
-      group: 1,
-      onSelect: () => void runAction(() => gitRevert(repo!, commit.hash)),
-    },
-    {
-      id: "resetSoft",
-      label: t("menu.resetSoft"),
-      icon: RotateCcw,
-      group: 2,
-      onSelect: () => void runAction(() => gitReset(repo!, commit.hash, "soft")),
-    },
-    {
-      id: "resetHard",
-      label: t("menu.resetHard"),
-      icon: RotateCcw,
-      group: 2,
-      danger: true,
-      onSelect: () => void runAction(() => gitReset(repo!, commit.hash, "hard")),
-    },
-  ];
+  const openCreateBranchModal = (commit: CommitNode) =>
+    setModal({
+      title: t("modal.createBranch.title"),
+      confirmLabel: t("modal.createBranch.confirm"),
+      fields: [
+        {
+          key: "name",
+          label: t("modal.branchName"),
+          placeholder: t("modal.branchPlaceholder"),
+          required: true,
+        },
+      ],
+      onConfirm: (values) =>
+        void runAction(() => gitBranchCreateAt(repo!, values.name, commit.hash)),
+    });
 
-  // Build the right-click menu for a branch / tag / HEAD decoration.
-  const refMenuItems = (ref: CommitRef): ContextMenuItem[] => {
-    if (ref.kind === "tag") {
-      return [
+  const openCreateTagModal = (commit: CommitNode) =>
+    setModal({
+      title: t("modal.createTag.title"),
+      confirmLabel: t("modal.createTag.confirm"),
+      fields: [
         {
-          id: "deleteTag",
-          label: t("menu.deleteTag"),
-          icon: Trash2,
-          group: 0,
-          danger: true,
-          onSelect: () => void runAction(() => gitTagDelete(repo!, ref.name)),
-        },
-      ];
-    }
-    // head = current branch (no checkout/merge of itself), branch = other local.
-    const items: ContextMenuItem[] = [];
-    if (ref.kind === "branch") {
-      items.push(
-        {
-          id: "checkout",
-          label: t("menu.checkout"),
-          icon: GitBranch,
-          group: 0,
-          onSelect: () => void runAction(() => gitBranchCheckout(repo!, ref.name)),
+          key: "name",
+          label: t("modal.tagName"),
+          placeholder: t("modal.tagPlaceholder"),
+          required: true,
         },
         {
-          id: "merge",
-          label: t("menu.merge", { name: ref.name }),
-          icon: GitMerge,
-          group: 0,
-          onSelect: () => void runAction(() => gitMerge(repo!, ref.name)),
+          key: "message",
+          label: t("modal.tagMessage"),
+          placeholder: t("modal.tagMessagePlaceholder"),
+          multiline: true,
         },
-        {
-          id: "deleteBranch",
-          label: t("menu.deleteBranch"),
-          icon: Trash2,
-          group: 1,
-          danger: true,
-          onSelect: () =>
-            void runAction(() => gitBranchDelete(repo!, ref.name, true)),
-        },
-      );
-    }
-    return items;
-  };
+      ],
+      onConfirm: (values) =>
+        void runAction(() => gitTagCreate(repo!, values.name, commit.hash, values.message)),
+    });
+
+  // Build the right-click menu for a commit node.
+  const commitMenuItems = (commit: CommitNode): ContextMenuItem[] =>
+    buildCommitMenu(
+      {
+        addTag: t("menu.createTagHere"),
+        createBranch: t("menu.createBranchHere"),
+        checkout: t("menu.checkoutCommit"),
+        cherryPick: t("menu.cherryPick"),
+        revert: t("menu.revert"),
+        merge: t("menu.mergeCommit"),
+        resetSoft: t("menu.resetSoft"),
+        resetHard: t("menu.resetHard"),
+        copyHash: t("menu.copyHash"),
+        copySubject: t("menu.copySubject"),
+      },
+      {
+        onAddTag: () => openCreateTagModal(commit),
+        onCreateBranch: () => openCreateBranchModal(commit),
+        onCheckout: () => void runAction(() => gitBranchCheckout(repo!, commit.hash)),
+        onCherryPick: () => void runAction(() => gitCherryPick(repo!, commit.hash)),
+        onRevert: () => void runAction(() => gitRevert(repo!, commit.hash)),
+        onMerge: () => void runAction(() => gitMerge(repo!, commit.hash)),
+        onResetSoft: () => void runAction(() => gitReset(repo!, commit.hash, "soft")),
+        onResetHard: () => void runAction(() => gitReset(repo!, commit.hash, "hard")),
+        onCopyHash: () => void navigator.clipboard.writeText(commit.hash),
+        onCopySubject: () => void navigator.clipboard.writeText(commit.message),
+      },
+    );
+
+  // Build the right-click menu for a branch / tag / remote / HEAD decoration.
+  const refMenuItems = (ref: CommitRef): ContextMenuItem[] =>
+    buildRefMenu(
+      ref,
+      {
+        checkout: t("menu.checkout"),
+        merge: t("menu.merge", { name: ref.name }),
+        deleteBranch: t("menu.deleteBranch"),
+        deleteTag: t("menu.deleteTag"),
+        mergeRemote: t("menu.merge", { name: ref.name }),
+        copyBranchName: t("menu.copyBranchName"),
+      },
+      {
+        onCheckout: () => void runAction(() => gitBranchCheckout(repo!, ref.name)),
+        onMerge: () => void runAction(() => gitMerge(repo!, ref.name)),
+        onDeleteBranch: () => void runAction(() => gitBranchDelete(repo!, ref.name, true)),
+        onDeleteTag: () => void runAction(() => gitTagDelete(repo!, ref.name)),
+        onMergeRemote: () => void runAction(() => gitMerge(repo!, ref.name)),
+        onCopyBranchName: () => void navigator.clipboard.writeText(ref.name),
+      },
+    );
 
   if (resolved && !repo) {
     return (

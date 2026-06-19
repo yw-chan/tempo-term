@@ -49,7 +49,12 @@
     "checkout": "Checkout branch",
     "merge": "Merge {{name}} into current",
     "deleteBranch": "Delete branch",
-    "deleteTag": "Delete tag"
+    "deleteTag": "Delete tag",
+    "checkoutCommit": "Checkout this commit",
+    "mergeCommit": "Merge this commit into current",
+    "copyHash": "Copy commit hash",
+    "copySubject": "Copy commit subject",
+    "copyBranchName": "Copy branch name"
   },
   "modal": {
     "cancel": "Cancel",
