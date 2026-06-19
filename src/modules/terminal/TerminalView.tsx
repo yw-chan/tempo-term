@@ -12,6 +12,7 @@ import {
   serializeBufferText,
   trimScrollback,
   MAX_SCROLLBACK_LINES,
+  SESSION_SEPARATOR,
 } from "./lib/terminalHistory";
 import {
   registerTerminal,
@@ -381,10 +382,6 @@ export function TerminalView({
     safeFit();
 
     let disposed = false;
-    // How many leading logical lines the restore wrote (the read-only history
-    // plus the separator). The snapshot strips these so it never re-saves the
-    // restored block, which would otherwise stack duplicates on every reopen.
-    let restoredLineCount = 0;
 
     // Restore the saved scrollback (read-only history) before the shell starts,
     // so it appears above a fresh prompt. Gated on the user setting.
@@ -398,11 +395,11 @@ export function TerminalView({
         return;
       }
       // Plain logical lines; dim the whole block grey so it reads as history,
-      // and convert "\n" to "\r\n" for the terminal.
+      // and convert "\n" to "\r\n" for the terminal. The separator line below
+      // doubles as the boundary marker the snapshot strips on (see snapshot()),
+      // so the restored block is never re-saved and never stacks duplicates.
       term.write(`\x1b[90m${saved.replace(/\n/g, "\r\n")}\x1b[0m\r\n`);
-      term.write("\x1b[90m── previous session ──\x1b[0m\r\n");
-      // Saved logical lines plus the one separator line we just appended.
-      restoredLineCount = saved.split("\n").length + 1;
+      term.write(`\x1b[90m${SESSION_SEPARATOR}\x1b[0m\r\n`);
     };
 
     void restoreHistory().then(() => {
@@ -473,11 +470,11 @@ export function TerminalView({
         return;
       }
       dirty = false;
-      // Serialize the whole buffer first, then drop the restored read-only
-      // prefix so only this session's live output is persisted. (Capping inside
-      // serializeBufferText could shift which lines are dropped, so strip the
-      // prefix on the full text, then trim for size.)
-      const live = dropRestoredPrefix(serializeBufferText(term), restoredLineCount);
+      // Serialize the whole buffer first, then drop everything up to and
+      // including the restore separator so only this session's live output is
+      // persisted. Capping inside serializeBufferText could scroll the separator
+      // out of view, so strip on the full text first, then trim for size.
+      const live = dropRestoredPrefix(serializeBufferText(term), SESSION_SEPARATOR);
       const data = trimScrollback(live, MAX_SCROLLBACK_LINES);
       void saveTerminalHistory(leafId, data).catch(() => {
         dirty = true;

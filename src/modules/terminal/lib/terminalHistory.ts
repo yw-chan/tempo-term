@@ -5,6 +5,14 @@ import type { Terminal } from "@xterm/xterm";
 export const MAX_SCROLLBACK_LINES = 1000;
 
 /**
+ * The line written between restored history and the live session. Doubles as the
+ * boundary marker for {@link dropRestoredPrefix}, so it is treated as a unique
+ * sentinel: written once on restore above the live output, and not expected to
+ * be emitted verbatim as its own line by a shell.
+ */
+export const SESSION_SEPARATOR = "── previous session ──";
+
+/**
  * Read the terminal buffer as plain logical lines (soft-wrapped rows joined back
  * into one line). Unlike a cell-exact serialization this carries no colour, but
  * it reflows cleanly when restored into a pane of any width, so resizing never
@@ -50,26 +58,26 @@ export function serializeBufferText(term: Terminal, maxLines?: number): string {
  * Strip the restored read-only history from a freshly serialized buffer so a
  * snapshot only persists what the live shell produced this session.
  *
- * On pane open we prepend the previously saved scrollback (greyed) plus a
- * "previous session" separator. Serializing the whole buffer would re-save that
- * restored block, so each reopen would stack another duplicated copy. Dropping
- * the first `restoredLineCount` logical lines keeps the persisted file to a
- * single session's output and breaks the duplication loop.
+ * On pane open we prepend the previously saved scrollback (greyed) plus the
+ * {@link SESSION_SEPARATOR} line. Serializing the whole buffer would re-save that
+ * restored block, so each reopen would stack another duplicated copy. We anchor
+ * on the separator (the FIRST occurrence — the real boundary always sits above
+ * the live output) and keep only what follows it.
  *
- * `restoredLineCount` counts the restored history lines plus the separator. If
- * the buffer was cleared/reset below that prefix (fewer lines than expected),
- * there is no live output to keep and nothing of the prefix may leak back, so
- * the result is empty.
+ * Anchoring on the marker rather than a fixed line count is robust to xterm
+ * evicting the oldest rows once a long single session overflows its scrollback:
+ * if some restored rows scrolled out, the separator still marks the boundary and
+ * no live line is dropped; if the separator itself scrolled out, the buffer is
+ * already pure live output and is returned unchanged. When the separator is
+ * absent (first session, or fully evicted) the text is returned as-is.
  */
-export function dropRestoredPrefix(text: string, restoredLineCount: number): string {
-  if (restoredLineCount <= 0) {
+export function dropRestoredPrefix(text: string, separator: string): string {
+  const lines = text.split("\n");
+  const boundary = lines.indexOf(separator);
+  if (boundary === -1) {
     return text;
   }
-  const lines = text.split("\n");
-  if (lines.length <= restoredLineCount) {
-    return "";
-  }
-  return lines.slice(restoredLineCount).join("\n");
+  return lines.slice(boundary + 1).join("\n");
 }
 
 /**
