@@ -315,8 +315,11 @@ export function TerminalView({
         let line: typeof firstLine | undefined = firstLine;
         while (line) {
           const cells: TerminalRow["cells"] = [];
+          // Reuse one cell object across columns; xterm fills it in place to
+          // avoid allocating per cell.
+          let cell: ReturnType<typeof line.getCell>;
           for (let col = 0; col < line.length; col += 1) {
-            const cell = line.getCell(col);
+            cell = line.getCell(col, cell);
             cells.push({
               chars: cell?.getChars() ?? "",
               width: cell?.getWidth() ?? 1,
@@ -341,11 +344,11 @@ export function TerminalView({
         // glyph's first column; end uses its last, so wide glyphs are covered.
         const startCell = (index: number): { x: number; y: number } => {
           const span = spans[index] ?? lastSpan;
-          return { x: span.startX, y: span.y };
+          return { x: span?.startX ?? 1, y: span?.y ?? lineNumber };
         };
         const endCell = (index: number): { x: number; y: number } => {
           const span = spans[index] ?? lastSpan;
-          return { x: span.endX, y: span.y };
+          return { x: span?.endX ?? 1, y: span?.y ?? lineNumber };
         };
         callback(
           matches.map((m) => ({
