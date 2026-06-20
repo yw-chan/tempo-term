@@ -66,6 +66,17 @@
     "newSpace": "New space",
     "renameSpace": "Rename space",
     "deleteSpace": "Delete space",
-    "addTab": "Add tab"
+    "addTab": "Add tab",
+    "status": {
+      "active": "Running",
+      "thinking": "Thinking",
+      "idle": "Needs Input"
+    },
+    "filter": {
+      "all": "All",
+      "active": "Running",
+      "idle": "Needs Input",
+      "thinking": "Thinking"
+    }
   }
 }

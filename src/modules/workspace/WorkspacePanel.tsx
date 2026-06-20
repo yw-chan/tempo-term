@@ -14,6 +14,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useTabsStore, type Tab, type TabKind } from "@/stores/tabsStore";
+import { useProgressStore } from "@/modules/claude-progress/lib/progressStore";
+import { deriveStatus } from "@/modules/claude-progress/lib/progressState";
 import { deriveTabCwd } from "./lib/tabCwd";
 
 function tabIcon(kind: TabKind): LucideIcon {
@@ -33,11 +35,33 @@ function tabIcon(kind: TabKind): LucideIcon {
   }
 }
 
+type ClaudeStatus = ReturnType<typeof deriveStatus>;
+
+const STATUS_STYLE: Record<ClaudeStatus, string> = {
+  active: "bg-accent/15 text-accent",
+  thinking: "bg-bg-elevated text-fg-muted",
+  idle: "bg-warning/15 text-warning",
+};
+
+function StatusBadge({ status }: { status: ClaudeStatus }) {
+  const { t } = useTranslation();
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] font-medium leading-none ${STATUS_STYLE[status]}`}
+    >
+      {t(`workspace.status.${status}`)}
+    </span>
+  );
+}
+
 function TabCard({ tab }: { tab: Tab }) {
   const activeId = useTabsStore((s) => s.activeId);
   const setActive = useTabsStore((s) => s.setActive);
+  const sessions = useProgressStore((s) => s.sessions);
   const active = tab.id === activeId;
   const cwd = deriveTabCwd(tab);
+  const progress = cwd ? sessions[cwd] : undefined;
+  const status = progress ? deriveStatus(progress) : null;
   const Icon = tabIcon(tab.kind);
 
   return (
@@ -52,7 +76,10 @@ function TabCard({ tab }: { tab: Tab }) {
     >
       <Icon size={14} className="mt-0.5 shrink-0 text-fg-subtle" />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-xs font-medium text-fg">{tab.title}</span>
+        <span className="flex items-center gap-1.5">
+          <span className="min-w-0 flex-1 truncate text-xs font-medium text-fg">{tab.title}</span>
+          {status && <StatusBadge status={status} />}
+        </span>
         {cwd && <span className="block truncate text-[11px] text-fg-subtle">{cwd}</span>}
       </span>
     </button>

@@ -4,8 +4,15 @@ import "@/i18n";
 import { WorkspacePanel } from "./WorkspacePanel";
 import { useTabsStore } from "@/stores/tabsStore";
 import { leaf } from "@/modules/terminal/lib/terminalLayout";
+import { useProgressStore } from "@/modules/claude-progress/lib/progressStore";
+import { emptyProgressState, reduceProgress } from "@/modules/claude-progress/lib/progressState";
+
+function activeSession() {
+  return reduceProgress(emptyProgressState(), { kind: "tool:start", id: "t1", name: "Bash" });
+}
 
 beforeEach(() => {
+  useProgressStore.setState({ sessions: {} });
   useTabsStore.setState({
     spaces: [{ id: "s1", name: "Salon" }],
     activeSpaceId: "s1",
@@ -50,5 +57,17 @@ describe("WorkspacePanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /Salon/ }));
     expect(screen.queryByText("alpha")).not.toBeInTheDocument();
     expect(screen.queryByText("beta")).not.toBeInTheDocument();
+  });
+
+  it("shows a Claude status badge on a card whose cwd has a running session", () => {
+    useProgressStore.setState({ sessions: { "/a": activeSession() } });
+    render(<WorkspacePanel />);
+    expect(screen.getByText("Running")).toBeInTheDocument();
+  });
+
+  it("shows no status badge when the card cwd has no session", () => {
+    render(<WorkspacePanel />);
+    expect(screen.queryByText("Running")).toBeNull();
+    expect(screen.queryByText("Needs Input")).toBeNull();
   });
 });

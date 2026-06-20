@@ -66,6 +66,17 @@
     "newSpace": "新增工作空間",
     "renameSpace": "重新命名工作空間",
     "deleteSpace": "刪除工作空間",
-    "addTab": "新增分頁"
+    "addTab": "新增分頁",
+    "status": {
+      "active": "執行中",
+      "thinking": "思考中",
+      "idle": "等待輸入"
+    },
+    "filter": {
+      "all": "全部",
+      "active": "執行中",
+      "idle": "等待輸入",
+      "thinking": "思考中"
+    }
   }
 }
