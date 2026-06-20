@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import "@/i18n";
 import { WorkspacePanel } from "./WorkspacePanel";
@@ -62,12 +62,31 @@ describe("WorkspacePanel", () => {
   it("shows a Claude status badge on a card whose cwd has a running session", () => {
     useProgressStore.setState({ sessions: { "/a": activeSession() } });
     render(<WorkspacePanel />);
-    expect(screen.getByText("Running")).toBeInTheDocument();
+    const card = screen.getByRole("button", { name: /alpha/ });
+    expect(within(card).getByText("Running")).toBeInTheDocument();
   });
 
   it("shows no status badge when the card cwd has no session", () => {
     render(<WorkspacePanel />);
-    expect(screen.queryByText("Running")).toBeNull();
-    expect(screen.queryByText("Needs Input")).toBeNull();
+    const card = screen.getByRole("button", { name: /beta/ });
+    expect(within(card).queryByText("Running")).toBeNull();
+    expect(within(card).queryByText("Needs Input")).toBeNull();
+  });
+
+  it("filters cards to only running sessions", () => {
+    useProgressStore.setState({ sessions: { "/a": activeSession() } });
+    render(<WorkspacePanel />);
+    fireEvent.click(screen.getByRole("button", { name: "Running" }));
+    expect(screen.getByText("alpha")).toBeInTheDocument();
+    expect(screen.queryByText("beta")).toBeNull();
+  });
+
+  it("shows all cards again when the filter is reset to All", () => {
+    useProgressStore.setState({ sessions: { "/a": activeSession() } });
+    render(<WorkspacePanel />);
+    fireEvent.click(screen.getByRole("button", { name: "Running" }));
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    expect(screen.getByText("alpha")).toBeInTheDocument();
+    expect(screen.getByText("beta")).toBeInTheDocument();
   });
 });

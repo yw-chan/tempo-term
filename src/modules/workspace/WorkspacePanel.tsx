@@ -36,6 +36,18 @@ function tabIcon(kind: TabKind): LucideIcon {
 }
 
 type ClaudeStatus = ReturnType<typeof deriveStatus>;
+type StatusFilter = "all" | ClaudeStatus;
+
+const FILTERS: StatusFilter[] = ["all", "active", "idle", "thinking"];
+
+type Sessions = ReturnType<typeof useProgressStore.getState>["sessions"];
+
+/** The Claude status for a tab's representative cwd, or null when no session. */
+function tabClaudeStatus(tab: Tab, sessions: Sessions): ClaudeStatus | null {
+  const cwd = deriveTabCwd(tab);
+  const progress = cwd ? sessions[cwd] : undefined;
+  return progress ? deriveStatus(progress) : null;
+}
 
 const STATUS_STYLE: Record<ClaudeStatus, string> = {
   active: "bg-accent/15 text-accent",
@@ -60,8 +72,7 @@ function TabCard({ tab }: { tab: Tab }) {
   const sessions = useProgressStore((s) => s.sessions);
   const active = tab.id === activeId;
   const cwd = deriveTabCwd(tab);
-  const progress = cwd ? sessions[cwd] : undefined;
-  const status = progress ? deriveStatus(progress) : null;
+  const status = tabClaudeStatus(tab, sessions);
   const Icon = tabIcon(tab.kind);
 
   return (
@@ -86,10 +97,18 @@ function TabCard({ tab }: { tab: Tab }) {
   );
 }
 
-function SpaceGroup({ id, name }: { id: string; name: string }) {
-  const tabs = useTabsStore((s) => s.tabs).filter((t) => t.spaceId === id);
+function SpaceGroup({ id, name, filter }: { id: string; name: string; filter: StatusFilter }) {
+  const sessions = useProgressStore((s) => s.sessions);
   const setActiveSpace = useTabsStore((s) => s.setActiveSpace);
   const [collapsed, setCollapsed] = useState(false);
+  const tabs = useTabsStore((s) => s.tabs)
+    .filter((t) => t.spaceId === id)
+    .filter((t) => filter === "all" || tabClaudeStatus(t, sessions) === filter);
+
+  // Under an active filter a group with no matching cards adds only noise.
+  if (filter !== "all" && tabs.length === 0) {
+    return null;
+  }
 
   return (
     <section className="space-y-1.5">
@@ -126,12 +145,28 @@ export function WorkspacePanel() {
   const { t } = useTranslation();
   const spaces = useTabsStore((s) => s.spaces);
   const newSpace = useTabsStore((s) => s.newSpace);
+  const [filter, setFilter] = useState<StatusFilter>("all");
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-2 py-1.5">
+        {FILTERS.map((key) => (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={filter === key}
+            onClick={() => setFilter(key)}
+            className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
+              filter === key ? "bg-bg-elevated text-fg" : "text-fg-subtle hover:text-fg"
+            }`}
+          >
+            {t(`workspace.filter.${key}`)}
+          </button>
+        ))}
+      </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-2">
         {spaces.map((space) => (
-          <SpaceGroup key={space.id} id={space.id} name={space.name} />
+          <SpaceGroup key={space.id} id={space.id} name={space.name} filter={filter} />
         ))}
       </div>
       <div className="shrink-0 border-t border-border p-2">
