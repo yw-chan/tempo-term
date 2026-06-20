@@ -9,7 +9,7 @@ use modules::fs::{
 };
 use modules::ai::ai_chat;
 use modules::claude_progress::{
-    claude_progress_unwatch, claude_progress_watch, ClaudeProgressState,
+    claude_progress_unwatch, claude_progress_watch, claude_session_title, ClaudeProgressState,
 };
 use modules::notes::{notes_unwatch, notes_watch, NotesWatchState};
 use modules::clipboard::{
@@ -153,6 +153,7 @@ pub fn run() {
             terminal_history_prune,
             claude_progress_watch,
             claude_progress_unwatch,
+            claude_session_title,
             notes_watch,
             notes_unwatch
         ])
