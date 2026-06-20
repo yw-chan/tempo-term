@@ -23,6 +23,7 @@ use modules::git::{
     git_reset, git_resolve_repo, git_revert, git_stage, git_status, git_tag_create, git_tag_delete,
     git_unstage, git_worktree_info,
 };
+use modules::pr::{gh_available, pr_via_api, pr_via_gh};
 use modules::secrets::{secrets_delete_key, secrets_has_key, secrets_set_key};
 use modules::pty::{
     pty_close, pty_close_all, pty_cwd, pty_foreground_command, pty_open, pty_resize,
@@ -145,6 +146,9 @@ pub fn run() {
             secrets_set_key,
             secrets_delete_key,
             secrets_has_key,
+            gh_available,
+            pr_via_gh,
+            pr_via_api,
             ai_chat,
             terminal_history_save,
             terminal_history_load,
