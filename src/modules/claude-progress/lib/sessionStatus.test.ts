@@ -35,6 +35,11 @@ describe("isClaudeForeground", () => {
     );
   });
 
+  it("matches claude run behind a prefix runner", () => {
+    expect(isClaudeForeground("sudo claude")).toBe(true);
+    expect(isClaudeForeground("npx claude")).toBe(true);
+  });
+
   it("does not match a plain shell or other commands", () => {
     expect(isClaudeForeground("zsh")).toBe(false);
     expect(isClaudeForeground("-zsh")).toBe(false);

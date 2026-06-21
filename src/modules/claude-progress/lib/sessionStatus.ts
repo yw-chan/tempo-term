@@ -38,11 +38,12 @@ export function isClaudeForeground(cmd: string | null): boolean {
     return false;
   }
   const trimmed = cmd.trim();
-  // Match claude as the executable (bare or with a path), or the npm package's
-  // node command — but not claude appearing only as an argument (e.g.
-  // `vim claude.md`), which would wrongly keep a stale status alive.
+  // Match claude as the executable (bare, path-qualified, or behind a prefix
+  // runner like sudo/npx), or the npm package's node command — but not claude
+  // appearing only as an argument (e.g. `vim claude.md`), which would wrongly
+  // keep a stale status alive.
   return (
-    /^(?:.*\/)?claude(?:\s|$)/i.test(trimmed) ||
+    /^(?:(?:sudo|npx|bunx|yarn\s+run)\s+)?(?:.*\/)?claude(?:\s|$)/i.test(trimmed) ||
     /\bclaude-code\b/i.test(trimmed) ||
     /@anthropic-ai\/claude/i.test(trimmed)
   );

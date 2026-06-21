@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Installed by tempo-term. Claude Code runs hooks with no controlling terminal,
 # so we walk the process ancestry to the claude process (which holds the PTY
 # slave) and write an OSC status sequence there. tempo-term's xterm parses it.

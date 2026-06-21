@@ -88,6 +88,14 @@ pub fn remove_hook_settings(mut existing: Value, script_path: &str) -> Value {
     for key in empty {
         hooks.remove(&key);
     }
+    // Drop the whole `hooks` key if nothing is left, rather than leaving an
+    // empty `"hooks": {}` block in the user's settings.
+    let hooks_empty = hooks.is_empty();
+    if hooks_empty {
+        if let Some(root) = existing.as_object_mut() {
+            root.remove("hooks");
+        }
+    }
     existing
 }
 
@@ -116,10 +124,18 @@ fn read_settings(settings_path: &PathBuf) -> Result<Value, String> {
 fn write_settings(settings_path: &PathBuf, value: &Value) -> Result<(), String> {
     let text = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
     // Write to a sibling temp file then rename, so an interrupted write can
-    // never leave the user's settings.json half-written.
+    // never leave the user's settings.json half-written. Clean up the temp file
+    // on either failure so we don't leave garbage in the config directory.
     let tmp_path = settings_path.with_extension("json.tmp");
-    std::fs::write(&tmp_path, text + "\n").map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp_path, settings_path).map_err(|e| e.to_string())
+    if let Err(err) = std::fs::write(&tmp_path, text + "\n") {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(err.to_string());
+    }
+    if let Err(err) = std::fs::rename(&tmp_path, settings_path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(err.to_string());
+    }
+    Ok(())
 }
 
 /// Write the hook script and register its entries in settings.json. Idempotent.
@@ -202,6 +218,15 @@ mod tests {
         let once = merge_hook_settings(json!({}), "/p/status-hook.sh");
         let twice = merge_hook_settings(once.clone(), "/p/status-hook.sh");
         assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn remove_drops_the_hooks_key_when_it_becomes_empty() {
+        // Settings whose only hooks are ours: after removal nothing is left, so
+        // the whole "hooks" key should be gone rather than left as "hooks": {}.
+        let merged = merge_hook_settings(json!({}), "/p/status-hook.sh");
+        let cleaned = remove_hook_settings(merged, "/p/status-hook.sh");
+        assert!(cleaned.get("hooks").is_none());
     }
 
     #[test]
