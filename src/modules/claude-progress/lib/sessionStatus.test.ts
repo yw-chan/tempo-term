@@ -46,6 +46,13 @@ describe("parseStatusOsc", () => {
     expect(parseStatusOsc("tempoterm;notify;auth_success")).toBeNull();
     expect(parseStatusOsc("tempoterm;notify;")).toBeNull();
   });
+
+  it("ignores prototype keys that resolve to inherited Object members", () => {
+    // A stray OSC must not look up "toString"/"constructor" and return an
+    // inherited function as the status.
+    expect(parseStatusOsc("tempoterm;notify;toString")).toBeNull();
+    expect(parseStatusOsc("tempoterm;notify;constructor")).toBeNull();
+  });
 });
 
 describe("isClaudeForeground", () => {

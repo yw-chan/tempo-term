@@ -12,7 +12,7 @@
 # prompt is just idle). An unknown or missing type emits nothing.
 state=$1
 if [ "$state" = "notification" ]; then
-  ntype=$(sed -n 's/.*"notification_type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  ntype=$(sed -n 's/.*"notification_type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
   [ -n "$ntype" ] || exit 0
   payload="tempoterm;notify;$ntype"
 else

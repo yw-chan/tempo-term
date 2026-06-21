@@ -33,8 +33,13 @@ export function parseStatusOsc(
     return null;
   }
   if (parts[1] === "notify") {
+    // Validate the resolved value is a real state: bracket access on an
+    // attacker-controlled key could otherwise surface an inherited member
+    // (e.g. "toString" → Object.prototype.toString).
     const status = NOTIFICATION_STATUS[parts[2]];
-    return status ? { kind: "status", status } : null;
+    return status && (STATES as readonly string[]).includes(status)
+      ? { kind: "status", status }
+      : null;
   }
   if (parts[1] !== "status") {
     return null;
