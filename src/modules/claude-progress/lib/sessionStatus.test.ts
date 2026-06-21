@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseStatusOsc } from "./sessionStatus";
+import { isClaudeForeground, parseStatusOsc } from "./sessionStatus";
 
 describe("parseStatusOsc", () => {
   it("parses a status payload", () => {
@@ -23,5 +23,23 @@ describe("parseStatusOsc", () => {
 
   it("ignores unknown states", () => {
     expect(parseStatusOsc("tempoterm;status;bogus")).toBeNull();
+  });
+});
+
+describe("isClaudeForeground", () => {
+  it("matches the claude binary, by name or path", () => {
+    expect(isClaudeForeground("claude")).toBe(true);
+    expect(isClaudeForeground("/Users/me/.local/bin/claude")).toBe(true);
+    expect(isClaudeForeground("node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js")).toBe(
+      true,
+    );
+  });
+
+  it("does not match a plain shell or other commands", () => {
+    expect(isClaudeForeground("zsh")).toBe(false);
+    expect(isClaudeForeground("-zsh")).toBe(false);
+    expect(isClaudeForeground("node server.js")).toBe(false);
+    expect(isClaudeForeground(null)).toBe(false);
+    expect(isClaudeForeground("")).toBe(false);
   });
 });
