@@ -40,14 +40,29 @@ pub fn init(app: &mut App) -> tauri::Result<()> {
 /// loads the same frontend; the frontend gives it a fresh, isolated state.
 pub fn create_new_window(app: &AppHandle) -> tauri::Result<()> {
     let label = next_window_label(app);
-    WebviewWindowBuilder::new(app, &label, WebviewUrl::default())
+    // resizable(true) is required for data-tauri-drag-region to work on macOS
+    // when a window is built dynamically (the overlay title bar's drag behaviour
+    // depends on the window being resizable at creation time).
+    let win = WebviewWindowBuilder::new(app, &label, WebviewUrl::default())
         .title("TempoTerm")
         .inner_size(1200.0, 800.0)
         .min_inner_size(720.0, 480.0)
         .title_bar_style(TitleBarStyle::Overlay)
         .hidden_title(true)
+        .resizable(true)
         .background_color(Color(34, 34, 34, 255))
         .build()?;
+    // window-state plugin may restore a stale size from a previous run.
+    // Clamp anything below the minimum back to the default so the window
+    // cannot appear too small or off-screen — mirrors the main-window guard
+    // in lib.rs setup().
+    if let (Ok(size), Ok(scale)) = (win.inner_size(), win.scale_factor()) {
+        let logical = size.to_logical::<f64>(scale);
+        if logical.width < 720.0 || logical.height < 480.0 {
+            win.set_size(tauri::LogicalSize::new(1200.0, 800.0))?;
+            win.center()?;
+        }
+    }
     Ok(())
 }
 
