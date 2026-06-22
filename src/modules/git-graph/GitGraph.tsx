@@ -187,9 +187,9 @@ export function GitGraph({
                       are here" without touching the calm commit rows. */}
                   <span
                     className={`h-3 w-3 rounded-full border-2 border-bg ${
-                      isCurrent ? "git-head-node" : "shadow-md"
+                      isCurrent ? "git-head-node bg-accent" : "shadow-md"
                     }`}
-                    style={{ backgroundColor: isCurrent ? "var(--color-accent)" : color }}
+                    style={isCurrent ? undefined : { backgroundColor: color }}
                   />
                 </button>
               );
