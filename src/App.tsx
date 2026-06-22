@@ -19,6 +19,7 @@ import { useProgressStore } from "@/modules/claude-progress/lib/progressStore";
 import { useWatchSessions } from "@/modules/claude-progress/lib/useWatchSessions";
 import { installStatusHook } from "@/modules/claude-progress/lib/statusHookBridge";
 import { useWatchNotes } from "@/modules/notes/lib/useWatchNotes";
+import { registerSecondaryWindowCleanup } from "@/lib/windowLifecycle";
 
 const MIN_SIDEBAR = 180;
 const MAX_SIDEBAR = 640;
@@ -49,6 +50,18 @@ function App() {
   useEffect(() => {
     const keep = useTabsStore.getState().tabs.flatMap((t) => leafIds(t.paneTree));
     void pruneTerminalHistory(keep).catch(() => {});
+  }, []);
+
+  // In a secondary window, close this window's PTY sessions before it is
+  // destroyed so no background shells leak. No-op in the main window.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    void registerSecondaryWindowCleanup()
+      .then((off) => {
+        unlisten = off;
+      })
+      .catch(() => {});
+    return () => unlisten?.();
   }, []);
 
   // Keep the Claude session-status hook installed when tracking is enabled, so
