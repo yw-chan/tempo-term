@@ -122,7 +122,7 @@ pub fn split_new_lines(contents: &str, from_offset: usize) -> (Vec<String>, usiz
 /// untouched. If the offset is past the end (the file shrank or was rewritten),
 /// or the tail isn't valid UTF-8 (the seek landed mid-character), we fall back to
 /// reading the whole file from the start, matching `split_new_lines`'s recovery.
-fn read_new_lines(path: &Path, from_offset: usize) -> Option<(Vec<String>, usize)> {
+pub(crate) fn read_new_lines(path: &Path, from_offset: usize) -> Option<(Vec<String>, usize)> {
     let len = match std::fs::metadata(path) {
         Ok(meta) => meta.len() as usize,
         // The tracked file is gone (deleted/rotated): signal so the caller can
@@ -167,7 +167,7 @@ fn read_from_start(path: &Path, from_offset: usize) -> (Vec<String>, usize) {
 /// Byte length of a file, or 0 if it cannot be read. Used to start tailing at the
 /// end of an existing transcript so old history is never replayed. Reads only the
 /// metadata, never the file contents.
-fn byte_len(path: &Path) -> usize {
+pub(crate) fn byte_len(path: &Path) -> usize {
     std::fs::metadata(path).map_or(0, |meta| meta.len() as usize)
 }
 
