@@ -3,6 +3,10 @@
   "tagline": "AI-powered terminal workspace",
   "terminalConnecting": "Starting shell…",
   "openLinkHint": "{{mods}}-click to open",
+  "ssh": {
+    "disconnected": "Disconnected — click to reconnect",
+    "reconnect": "Reconnect"
+  },
   "nav": {
     "workspaces": "Workspaces",
     "terminal": "Terminal",
@@ -13,7 +17,8 @@
     "ai": "AI Assistant",
     "notes": "Notes",
     "gitGraph": "Git Graph",
-    "settings": "Settings"
+    "settings": "Settings",
+    "connections": "Connections"
   },
   "statusBar": {
     "ready": "Ready",
@@ -35,6 +40,74 @@
     "terminalArea": "Terminal sessions will appear here",
     "search": "Search files, commands and settings"
   },
+  "sshPrompt": {
+    "hostKeyUnknown": {
+      "title": "Unknown Host Key",
+      "body": "The authenticity of this host cannot be established. Fingerprint:",
+      "trust": "Trust",
+      "cancel": "Cancel"
+    },
+    "hostKeyChanged": {
+      "title": "Host Key Changed",
+      "warning": "WARNING: The host key has changed. This could mean someone is intercepting your connection (man-in-the-middle attack). Only proceed if you are certain the host key was legitimately updated.",
+      "body": "New fingerprint:",
+      "replace": "Replace",
+      "cancel": "Cancel"
+    },
+    "password": {
+      "title": "Password Required",
+      "label": "Password",
+      "remember": "Remember password",
+      "connect": "Connect",
+      "cancel": "Cancel"
+    },
+    "passphrase": {
+      "title": "Passphrase Required",
+      "label": "Passphrase",
+      "remember": "Remember passphrase",
+      "ok": "OK",
+      "cancel": "Cancel"
+    }
+  },
+  "connectionsPanel": {
+    "title": "Connections",
+    "newConnection": "New connection",
+    "edit": "Edit",
+    "delete": "Delete",
+    "confirmDelete": "Delete?",
+    "cancelDelete": "Cancel",
+    "emptyTitle": "No saved connections",
+    "emptyHint": "Save SSH connections here to connect with one click"
+  },
+  "connectionForm": {
+    "titleCreate": "New SSH Connection",
+    "titleEdit": "Edit SSH Connection",
+    "pasteLabel": "Paste ssh command",
+    "pastePlaceholder": "ssh user@host -p 2222 -i ~/.ssh/id_ed25519",
+    "pasteHint": "Paste an ssh command to auto-fill the fields below",
+    "ignoredPrefix": "Ignored:",
+    "fields": {
+      "name": "Name",
+      "host": "Host",
+      "port": "Port",
+      "user": "Username",
+      "authMethod": "Auth method",
+      "keyPath": "Private key path",
+      "secret": "Password",
+      "passphrase": "Passphrase",
+      "remember": "Remember password",
+      "rememberPassphrase": "Remember passphrase"
+    },
+    "authMethod": {
+      "password": "Password",
+      "keyFile": "Key file",
+      "agent": "SSH agent"
+    },
+    "save": "Save",
+    "connect": "Connect",
+    "cancel": "Cancel",
+    "browse": "Browse"
+  },
   "workspace": {
     "openFolder": "Open Folder",
     "openFile": "Open File",
@@ -46,6 +119,7 @@
     "terminal": "Terminal",
     "note": "Note",
     "newTerminal": "New terminal",
+    "connectSsh": "Connect SSH",
     "launcherHint": "Choose what to open",
     "launcherGroup": {
       "workspace": "Workspace",

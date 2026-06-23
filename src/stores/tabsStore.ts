@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { uid } from "@/lib/id";
 import { perWindowStorage } from "@/lib/window";
+import { markFreshSshLeaf } from "@/modules/ssh/lib/freshSshLeaves";
 import {
   computeLayout,
   findPaneContent,
@@ -60,6 +61,8 @@ interface TabsState {
   renameSpace: (id: string, name: string) => void;
   deleteSpace: (id: string) => void;
   newTerminalTab: (cwd?: string) => string;
+  /** Open a terminal tab wired to an SSH connection. The tab is user-named (renamed=true) so cwd sync never overwrites the title. */
+  openSshTab: (connectionId: string, name: string) => string;
   /** A blank "new tab" showing the launcher; reused if one already exists. */
   openLauncherTab: () => string;
   openEditorTab: (path: string) => string;
@@ -271,6 +274,27 @@ export const useTabsStore = create<TabsState>()(
       activeLeafId: paneId,
       cwd,
     };
+    set((state) => ({ tabs: [...state.tabs, tab], activeId: id }));
+    return id;
+  },
+
+  openSshTab: (connectionId, name) => {
+    const spaceId = get().ensureSpace();
+    const id = nextTabId();
+    const paneId = nextPaneId();
+    const tab: Tab = {
+      id,
+      spaceId,
+      kind: "terminal",
+      title: name,
+      paneTree: leaf(paneId, { kind: "terminal", ssh: { connectionId } }),
+      activeLeafId: paneId,
+      renamed: true,
+    };
+    // Mark this leaf as freshly user-opened so TerminalView auto-connects on mount.
+    // Restored panes (after app relaunch) never reach this path, so their leaf ids
+    // will NOT be in the set and TerminalView will show the Reconnect state instead.
+    markFreshSshLeaf(paneId);
     set((state) => ({ tabs: [...state.tabs, tab], activeId: id }));
     return id;
   },
@@ -558,7 +582,14 @@ export const useTabsStore = create<TabsState>()(
       return {
         tabs: state.tabs.map((t) =>
           t.id === tabId
-            ? { ...t, paneTree: setLeafPane(t.paneTree, leafId, { kind: "terminal", cwd }) }
+            ? {
+                ...t,
+                paneTree: setLeafPane(t.paneTree, leafId, {
+                  kind: "terminal",
+                  cwd,
+                  ssh: current.ssh,
+                }),
+              }
             : t,
         ),
       };

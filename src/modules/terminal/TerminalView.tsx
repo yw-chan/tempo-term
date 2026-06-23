@@ -1,9 +1,17 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2 } from "lucide-react";
+import { Loader2, WifiOff } from "lucide-react";
+import { consumeFreshSshLeaf } from "@/modules/ssh/lib/freshSshLeaves";
 import { createTerminal, enableWebglRenderer, type TerminalHandle } from "./lib/createTerminal";
 import { openPty, type PtySession } from "./lib/pty-bridge";
+import { openSsh, type SshSession } from "@/modules/ssh/lib/ssh-bridge";
+
+/** Narrows a session to PtySession (which has cwd/foregroundCommand). */
+function isPtySession(s: PtySession | SshSession): s is PtySession {
+  return "cwd" in s;
+}
+import { useConnectionsStore } from "@/stores/connectionsStore";
 import {
   deleteTerminalHistory,
   dropRestoredPrefix,
@@ -75,6 +83,8 @@ interface TerminalViewProps {
   cwdTracking?: boolean;
   /** Directory the shell starts in. */
   cwd?: string;
+  /** SSH connection info, when this pane hosts an SSH session instead of a local PTY. */
+  ssh?: { connectionId: string };
   /** Pane id, so notes/workflows can run commands into this terminal. */
   leafId?: string;
   onExit?: () => void;
@@ -88,6 +98,7 @@ export function TerminalView({
   active,
   cwdTracking = false,
   cwd,
+  ssh,
   leafId,
   onExit,
   onCwdChange,
@@ -101,13 +112,18 @@ export function TerminalView({
   cwdRef.current = cwd;
   const containerRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<TerminalHandle | null>(null);
-  const sessionRef = useRef<PtySession | null>(null);
+  const sessionRef = useRef<PtySession | SshSession | null>(null);
+  const sshRef = useRef(ssh);
+  sshRef.current = ssh;
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
   const onCwdChangeRef = useRef(onCwdChange);
   onCwdChangeRef.current = onCwdChange;
   const onOpenFileRef = useRef(onOpenFile);
   onOpenFileRef.current = onOpenFile;
+  // Holds a deferred "start the SSH session now" function that is set inside the
+  // main mount effect and called by the reconnect button for restored panes.
+  const connectNowRef = useRef<(() => void) | null>(null);
   const { t } = useTranslation();
   const linkHintRef = useRef(t("openLinkHint", { mods: openModifierLabel(IS_MAC) }));
   linkHintRef.current = t("openLinkHint", { mods: openModifierLabel(IS_MAC) });
@@ -117,6 +133,12 @@ export function TerminalView({
   const themeId = useSettingsStore((s) => s.themeId);
   const terminalPadding = useSettingsStore((s) => s.terminalPadding);
   const [connecting, setConnecting] = useState(true);
+  // For SSH panes restored after an app relaunch: the freshSshLeaves set is empty,
+  // so those panes must not auto-connect. This flag shows the Reconnect UI instead.
+  const [sshDisconnected, setSshDisconnected] = useState(false);
+  // Incrementing this counter (via the Reconnect button) re-triggers the connect
+  // effect for restored SSH panes without touching any other path.
+  const [reconnectTrigger, setReconnectTrigger] = useState(0);
   const [externalFileDragging, setExternalFileDragging] = useState(false);
   const dragDepthRef = useRef(0);
   const nativeDragPathsRef = useRef<string[]>([]);
@@ -179,7 +201,9 @@ export function TerminalView({
           imagePaths = await terminalClipboardImagePaths().catch(() => []);
         }
         if (filePaths.length === 1 || imagePaths.length === 1) {
-          command = await session.foregroundCommand().catch(() => null);
+          command = isPtySession(session)
+            ? await session.foregroundCommand().catch(() => null)
+            : null;
         }
       }
       const action = resolvePasteAction({
@@ -309,7 +333,8 @@ export function TerminalView({
     async function openFromTerminal(raw: string) {
       let resolvedCwd: string | null = cwdRef.current ?? null;
       try {
-        const live = await sessionRef.current?.cwd();
+        const s = sessionRef.current;
+        const live = s && isPtySession(s) ? await s.cwd() : null;
         if (live) {
           resolvedCwd = live;
         }
@@ -397,29 +422,65 @@ export function TerminalView({
       term.write(`\x1b[90m${SESSION_SEPARATOR}\x1b[0m\r\n`);
     };
 
-    void restoreHistory().then(() => {
-      if (disposed) {
-        return;
-      }
-      void openPty({
-      cols: term.cols,
-      rows: term.rows,
-      cwd: cwdRef.current,
-      onData: (bytes) => term.write(bytes),
-      // Only treat an exit as user-facing when we did not tear the session
-      // down ourselves (e.g. React StrictMode's mount/unmount/remount in dev).
-      onExit: () => {
-        if (!disposed) {
-          onExitRef.current?.();
-          // The shell ended while the app is running (e.g. the user typed
-          // `exit`), so its history is no longer wanted. An app teardown sets
-          // `disposed` first, so that path keeps the history for next launch.
-          if (leafIdRef.current) {
-            void deleteTerminalHistory(leafIdRef.current);
-          }
+    const openSession = async (): Promise<PtySession | SshSession> => {
+      const paneSsh = sshRef.current;
+      if (paneSsh) {
+        const conn = useConnectionsStore.getState().getConnection(paneSsh.connectionId);
+        if (!conn) {
+          throw new Error(`SSH connection "${paneSsh.connectionId}" not found — it may have been deleted.`);
         }
-      },
-    })
+        return openSsh({
+          connectionId: conn.id,
+          host: conn.host,
+          port: conn.port,
+          user: conn.user,
+          authMethod: conn.authMethod,
+          keyPath: conn.keyPath,
+          cols: term.cols,
+          rows: term.rows,
+          onData: (bytes) => term.write(bytes),
+          // Only treat an exit as user-facing when we did not tear the session
+          // down ourselves (e.g. React StrictMode's mount/unmount/remount in dev).
+          onExit: (_code) => {
+            if (!disposed) {
+              // Do NOT call onExitRef (which closes the pane). Instead, show the
+              // Reconnect card so the user can retry after a failed/dropped connection.
+              void sessionRef.current?.close();
+              setSshDisconnected(true);
+              setConnecting(false);
+            }
+          },
+        });
+      }
+      return openPty({
+        cols: term.cols,
+        rows: term.rows,
+        cwd: cwdRef.current,
+        onData: (bytes) => term.write(bytes),
+        // Only treat an exit as user-facing when we did not tear the session
+        // down ourselves (e.g. React StrictMode's mount/unmount/remount in dev).
+        onExit: () => {
+          if (!disposed) {
+            onExitRef.current?.();
+            // The shell ended while the app is running (e.g. the user typed
+            // `exit`), so its history is no longer wanted. An app teardown sets
+            // `disposed` first, so that path keeps the history for next launch.
+            if (leafIdRef.current) {
+              void deleteTerminalHistory(leafIdRef.current);
+            }
+          }
+        },
+      });
+    };
+
+    // History restore only applies to local PTY sessions.
+    const beforeOpen = sshRef.current ? Promise.resolve() : restoreHistory();
+
+    // Shared "open session and wire it up" logic, used both on first mount
+    // (for fresh SSH and all PTY panes) and by the Reconnect button (for
+    // restored SSH panes that skipped auto-connect on relaunch).
+    function startSession() {
+      void openSession()
       .then((session) => {
         if (disposed) {
           void session.close();
@@ -437,6 +498,7 @@ export function TerminalView({
         if (cwdTracking && cwdRef.current) {
           useWorkspaceStore.getState().setRoot(cwdRef.current);
         }
+        setSshDisconnected(false);
         setConnecting(false);
       })
       .catch((error: unknown) => {
@@ -449,6 +511,36 @@ export function TerminalView({
         term.write(`\r\n\x1b[31mFailed to open shell: ${message}\x1b[0m\r\n`);
         setConnecting(false);
       });
+    }
+
+    // Expose the connect function so the Reconnect button can call it after mount.
+    connectNowRef.current = () => {
+      if (disposed) {
+        return;
+      }
+      setConnecting(true);
+      startSession();
+    };
+
+    void beforeOpen.then(() => {
+      if (disposed) {
+        return;
+      }
+      // For SSH panes: only auto-connect if this leaf was freshly opened this
+      // session (i.e. the user just clicked "Connect"). Restored panes after a
+      // relaunch will not be in the set, so they show the Reconnect UI instead.
+      if (sshRef.current) {
+        const isFresh = leafIdRef.current
+          ? consumeFreshSshLeaf(leafIdRef.current)
+          : false;
+        if (!isFresh) {
+          // Restored SSH pane — show the Disconnected / Reconnect state.
+          setSshDisconnected(true);
+          setConnecting(false);
+          return;
+        }
+      }
+      startSession();
     });
 
     // Snapshot the scrollback periodically so a crash/quit loses at most a few
@@ -585,15 +677,17 @@ export function TerminalView({
   }, [terminalPadding]);
 
   // While this pane is the live one, follow its shell's working directory so
-  // the file explorer tracks `cd`.
+  // the file explorer tracks `cd`. SSH panes skip this entirely — they have no
+  // cwd() or foregroundCommand() methods.
   useEffect(() => {
-    if (!cwdTracking) {
+    if (!cwdTracking || sshRef.current) {
       return;
     }
     let cancelled = false;
     let last = "";
     const poll = async () => {
-      const session = sessionRef.current;
+      const raw = sessionRef.current;
+      const session = raw && isPtySession(raw) ? raw : null;
       if (!session) {
         return;
       }
@@ -662,12 +756,13 @@ export function TerminalView({
   }, [cwdTracking]);
 
   // Snapshot the cwd when this pane stops being active (e.g. switching tabs), so
-  // its last directory is saved between polls. Event-driven, no extra polling.
+  // its last directory is saved between polls. SSH panes skip this — no cwd() method.
   useEffect(() => {
-    if (active) {
+    if (active || sshRef.current) {
       return;
     }
-    const session = sessionRef.current;
+    const raw = sessionRef.current;
+    const session = raw && isPtySession(raw) ? raw : null;
     if (!session) {
       return;
     }
@@ -755,6 +850,16 @@ export function TerminalView({
     };
   }, []);
 
+  // When the user clicks Reconnect on a restored SSH pane, reconnectTrigger is
+  // incremented. This effect wakes up and calls the deferred connect function
+  // that was stored in connectNowRef during the main mount effect.
+  useEffect(() => {
+    if (reconnectTrigger === 0) {
+      return;
+    }
+    connectNowRef.current?.();
+  }, [reconnectTrigger]);
+
   // Match the padding gutter to the terminal's own background so the inset
   // reads as breathing room rather than a different-coloured frame.
   function isExternalFileDrag(data: DataTransfer): boolean {
@@ -783,7 +888,9 @@ export function TerminalView({
     if (filePaths.length === 0) {
       return false;
     }
-    const command = await session.foregroundCommand().catch(() => null);
+    const command = isPtySession(session)
+      ? await session.foregroundCommand().catch(() => null)
+      : null;
     if (shouldAttachImage(command, filePaths)) {
       await prepareClipboardImageAttachment(filePaths[0]).catch(() => {});
       await session.write("\x16");
@@ -863,6 +970,20 @@ export function TerminalView({
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-fg-subtle">
           <Loader2 size={15} className="animate-spin" />
           <span className="text-xs">{t("terminalConnecting")}</span>
+        </div>
+      )}
+      {sshDisconnected && !connecting && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-fg-subtle">
+          <WifiOff size={24} />
+          <span className="text-sm">{t("ssh.disconnected")}</span>
+          <button
+            type="button"
+            disabled={connecting}
+            onClick={() => setReconnectTrigger((n) => n + 1)}
+            className="rounded-md border border-border px-4 py-1.5 text-sm text-fg-muted hover:bg-bg-elevated hover:text-fg disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {t("ssh.reconnect")}
+          </button>
         </div>
       )}
     </div>

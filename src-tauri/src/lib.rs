@@ -27,11 +27,14 @@ use modules::git::{
     git_unstage, git_worktree_info,
 };
 use modules::pr::{gh_available, pr_via_api, pr_via_gh};
-use modules::secrets::{secrets_delete_key, secrets_has_key, secrets_set_key};
+use modules::secrets::{
+    secrets_delete_key, secrets_has_key, secrets_set_key, ssh_secret_delete, ssh_secret_set,
+};
 use modules::pty::{
     pty_close, pty_close_all, pty_cwd, pty_foreground_command, pty_open, pty_resize,
     pty_shell_name, pty_write, PtyState,
 };
+use modules::ssh::{ssh_close, ssh_open, ssh_prompt_reply, ssh_resize, ssh_write, SshState};
 use modules::terminal_history::{
     terminal_history_clear, terminal_history_delete, terminal_history_load,
     terminal_history_prune, terminal_history_save,
@@ -73,6 +76,7 @@ pub fn run() {
                 .build(),
         )
         .manage(PtyState::new())
+        .manage(SshState::new())
         .manage(ClaudeProgressState::new())
         .manage(CodexProgressState::new())
         .manage(NotesWatchState::new())
@@ -169,7 +173,14 @@ pub fn run() {
             codex_status_hook_install,
             codex_status_hook_uninstall,
             notes_watch,
-            notes_unwatch
+            notes_unwatch,
+            ssh_open,
+            ssh_write,
+            ssh_resize,
+            ssh_close,
+            ssh_prompt_reply,
+            ssh_secret_set,
+            ssh_secret_delete
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
