@@ -6,6 +6,8 @@ import { consumeFreshSshLeaf } from "@/modules/ssh/lib/freshSshLeaves";
 import { createTerminal, enableWebglRenderer, type TerminalHandle } from "./lib/createTerminal";
 import { openPty, type PtySession } from "./lib/pty-bridge";
 import { openSsh, type SshSession } from "@/modules/ssh/lib/ssh-bridge";
+import { useForwardStatusStore } from "@/modules/ssh/lib/forwardStatusStore";
+import { liveSessionsStore } from "@/modules/ssh/lib/liveSessionsStore";
 
 /** Narrows a session to PtySession (which has cwd/foregroundCommand). */
 function isPtySession(s: PtySession | SshSession): s is PtySession {
@@ -429,6 +431,15 @@ export function TerminalView({
         if (!conn) {
           throw new Error(`SSH connection "${paneSsh.connectionId}" not found — it may have been deleted.`);
         }
+        const forwards = conn.portForwards
+          ?.filter((pf) => pf.enabled)
+          .map((pf) => ({
+            id: pf.id,
+            bindHost: pf.bindHost,
+            localPort: pf.localPort,
+            destHost: pf.destHost,
+            destPort: pf.destPort,
+          }));
         return openSsh({
           connectionId: conn.id,
           host: conn.host,
@@ -438,6 +449,7 @@ export function TerminalView({
           keyPath: conn.keyPath,
           cols: term.cols,
           rows: term.rows,
+          forwards,
           onData: (bytes) => term.write(bytes),
           // Only treat an exit as user-facing when we did not tear the session
           // down ourselves (e.g. React StrictMode's mount/unmount/remount in dev).
@@ -445,7 +457,12 @@ export function TerminalView({
             if (!disposed) {
               // Do NOT call onExitRef (which closes the pane). Instead, show the
               // Reconnect card so the user can retry after a failed/dropped connection.
+              const sshSession = sessionRef.current as SshSession | null;
               void sessionRef.current?.close();
+              if (sshSession) {
+                useForwardStatusStore.getState().clearSession(sshSession.id);
+                liveSessionsStore.getState().unregister(sshSession.id);
+              }
               setSshDisconnected(true);
               setConnecting(false);
             }
@@ -487,6 +504,11 @@ export function TerminalView({
           return;
         }
         sessionRef.current = session;
+        // Register live SSH session so ConnectionsPanel can show forwarding status.
+        const paneSshConn = sshRef.current;
+        if (paneSshConn && !isPtySession(session)) {
+          liveSessionsStore.getState().register(paneSshConn.connectionId, session.id);
+        }
         term.onData((data) => void session.write(data));
         if (leafIdRef.current) {
           registerTerminal(leafIdRef.current, (text) => void session.write(text));
@@ -599,6 +621,13 @@ export function TerminalView({
         unregisterTerminal(leafIdRef.current);
         unregisterTerminalPathDrop(leafIdRef.current);
         useSessionStatusStore.getState().clear(leafIdRef.current);
+      }
+      // Unregister live SSH session on pane close so the connections panel
+      // no longer shows forwarding rows for this session.
+      const closingSession = sessionRef.current;
+      if (closingSession && !isPtySession(closingSession)) {
+        useForwardStatusStore.getState().clearSession(closingSession.id);
+        liveSessionsStore.getState().unregister(closingSession.id);
       }
       void sessionRef.current?.close();
       term.dispose();

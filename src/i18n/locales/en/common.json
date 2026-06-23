@@ -77,7 +77,15 @@
     "confirmDelete": "Delete?",
     "cancelDelete": "Cancel",
     "emptyTitle": "No saved connections",
-    "emptyHint": "Save SSH connections here to connect with one click"
+    "emptyHint": "Save SSH connections here to connect with one click",
+    "forwards": {
+      "session": "Session {{id}}",
+      "statusActive": "Active",
+      "statusFailed": "Failed",
+      "statusStopped": "Stopped",
+      "toggleOff": "Stop forward",
+      "toggleOn": "Start forward"
+    }
   },
   "connectionForm": {
     "titleCreate": "New SSH Connection",
@@ -106,7 +114,17 @@
     "save": "Save",
     "connect": "Connect",
     "cancel": "Cancel",
-    "browse": "Browse"
+    "browse": "Browse",
+    "portForwards": {
+      "sectionLabel": "Port forwarding",
+      "addButton": "Add forward",
+      "removeButton": "Remove",
+      "bindHost": "Bind host",
+      "localPort": "Local port",
+      "destHost": "Destination host",
+      "destPort": "Destination port",
+      "enabled": "Enabled"
+    }
   },
   "workspace": {
     "openFolder": "Open Folder",

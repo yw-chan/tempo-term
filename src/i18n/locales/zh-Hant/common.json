@@ -77,7 +77,15 @@
     "confirmDelete": "確認刪除？",
     "cancelDelete": "取消",
     "emptyTitle": "尚無已儲存的連線",
-    "emptyHint": "在這裡儲存 SSH 連線，即可一鍵連線"
+    "emptyHint": "在這裡儲存 SSH 連線，即可一鍵連線",
+    "forwards": {
+      "session": "工作階段 {{id}}",
+      "statusActive": "作用中",
+      "statusFailed": "失敗",
+      "statusStopped": "已停止",
+      "toggleOff": "停止轉發",
+      "toggleOn": "啟動轉發"
+    }
   },
   "connectionForm": {
     "titleCreate": "新增 SSH 連線",
@@ -106,7 +114,17 @@
     "save": "儲存",
     "connect": "連線",
     "cancel": "取消",
-    "browse": "瀏覽"
+    "browse": "瀏覽",
+    "portForwards": {
+      "sectionLabel": "連接埠轉發",
+      "addButton": "新增轉發規則",
+      "removeButton": "移除",
+      "bindHost": "綁定主機",
+      "localPort": "本地埠號",
+      "destHost": "目標主機",
+      "destPort": "目標埠號",
+      "enabled": "啟用"
+    }
   },
   "workspace": {
     "openFolder": "開啟資料夾",
