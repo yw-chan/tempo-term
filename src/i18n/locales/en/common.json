@@ -3,6 +3,22 @@
   "tagline": "AI-powered terminal workspace",
   "terminalConnecting": "Starting shell…",
   "openLinkHint": "{{mods}}-click to open",
+  "actionLinks": {
+    "hoverHint": "Hover for actions",
+    "preview": "Open in preview",
+    "ping": "Ping",
+    "traceroute": "Traceroute",
+    "ssh": "SSH",
+    "curl": "curl (HTTP)",
+    "curlHttps": "curl (HTTPS)",
+    "nc": "Netcat",
+    "telnet": "Telnet",
+    "extract": "Extract",
+    "list": "List contents",
+    "dangerWarning": "This command looks destructive.",
+    "runAnyway": "Run anyway",
+    "cancel": "Cancel"
+  },
   "terminalSearch": {
     "placeholder": "Find in terminal",
     "next": "Find next",
