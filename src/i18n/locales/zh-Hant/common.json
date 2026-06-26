@@ -53,7 +53,10 @@
     "shell": "Shell",
     "encoding": "UTF-8",
     "language": "語言",
-    "updateAvailable": "有可用更新"
+    "updateAvailable": "有可用更新",
+    "cpu": "CPU",
+    "ramTooltip": "RAM {{used}} / {{total}}",
+    "netTooltip": "下載 {{rx}} · 上傳 {{tx}}"
   },
   "actions": {
     "newTab": "新增分頁",

@@ -53,7 +53,10 @@
     "shell": "Shell",
     "encoding": "UTF-8",
     "language": "Language",
-    "updateAvailable": "Update available"
+    "updateAvailable": "Update available",
+    "cpu": "CPU",
+    "ramTooltip": "RAM {{used}} / {{total}}",
+    "netTooltip": "Download {{rx}} · Upload {{tx}}"
   },
   "actions": {
     "newTab": "New Tab",
