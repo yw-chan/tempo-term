@@ -2,6 +2,7 @@
 
 ### feat
 - 編輯器檔案重新整理：開啟的檔案被外部或 AI 改動後不用關掉重開，工具列多了一個重新整理鈕可隨時載入最新內容，若有未存修改會先確認；編輯器也會自動偵測磁碟變更，沒有未存修改時自動重載，有的話跳出提示讓你選要用磁碟版本還是保留自己的
+- Logs 面板：左側欄新增一個記錄面板，自動把每個終端機 session（本機與 SSH，包含在終端機裡跑的 Claude Code、Codex 對話）的輸出存成獨立檔案，點一下就在主分頁區開啟，可用乾淨文字或 Raw ANSI 檢視、複製、另存，點別的記錄會直接換到同一個分頁；設定裡可開關記錄與選保留期限（預設 30 天）
 
 ### fix
 - 終端機裡被程式（例如 AI agent）折成兩行的長檔案路徑，現在點上下任一段都打得開，會自動把被斷開的路徑接回來再開
@@ -12,6 +13,7 @@
 
 ### feat
 - Editor file reload: when an open file changes on disk (e.g. an AI agent edits it), pick up the new content without closing and reopening the tab. A toolbar refresh button reloads on demand (confirming first if you have unsaved edits), and the editor also watches the file: a clean buffer reloads automatically, while unsaved edits raise a banner to choose between the disk version and your own
+- Logs panel: a new sidebar panel records every terminal session's output (local and SSH, including Claude Code / Codex conversations running in the terminal) to its own file. Click a log to open it in a reusable main-area tab, view it as clean text or raw ANSI, copy or save it, and clicking another log swaps that same tab. Settings add an enable toggle and a retention policy (default 30 days)
 
 ### fix
 - File paths that a program (e.g. an AI agent) hard-wraps across two lines in the terminal are now clickable: clicking either half opens the rejoined path
