@@ -4,6 +4,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { installAtlasPressureGuard } from "./webglAtlasGuard";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { buildTerminalFontFamily } from "@/modules/fonts/lib/fontChain";
 import { isLocalUrl, isWebUrl } from "@/lib/url";
@@ -112,6 +113,15 @@ export function enableWebglRenderer(term: Terminal): WebglAddon | null {
     // reattaches its DOM renderer.
     addon.onContextLoss(() => addon.dispose());
     term.loadAddon(addon);
+    // Clear the glyph atlas just before it overflows, so long CJK-heavy sessions
+    // don't start rendering the wrong glyphs (see webglAtlasGuard). Run the
+    // guard's cleanup when the addon is disposed so its listener doesn't leak.
+    const disposeAtlasGuard = installAtlasPressureGuard(addon);
+    const originalDispose = addon.dispose.bind(addon);
+    addon.dispose = () => {
+      disposeAtlasGuard();
+      originalDispose();
+    };
     return addon;
   } catch {
     return null;
