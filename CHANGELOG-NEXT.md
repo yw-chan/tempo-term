@@ -11,6 +11,7 @@
 - Windows 上的 Claude 狀態 hook 現在會正常觸發：之前 hook 的路徑用反斜線，被 bash 當成逃脫字元吃掉導致整個失效，改用正斜線（Git Bash 也吃得下）後就正常了
 - 終端機長時間使用後中文字會渲染成亂碼的問題已修：原因是 WebGL 字形快取塞滿後畫到錯的字，現在會在快滿之前自動清一次快取，不用再手動切換字體
 - 側邊欄切換到工作區面板時短暫卡頓、像當機的問題已修：原因是面板每次顯示都重複做大量計算，現在改成只算必要的部分，切換變順
+- Git 線圖點開 commit 看 diff 時的卡頓已修：之前不論 diff 多長都一次把每一行畫成節點，大檔會塞進上千個 DOM；現在只渲染可視範圍內的行，超長 diff 也順
 
 ## English
 
@@ -25,3 +26,4 @@
 - The Claude status hook now fires on Windows: its script path used backslashes that bash treated as escapes and dropped, so the hook is now stored with forward slashes that Git Bash accepts
 - Fixed CJK text rendering as garbled glyphs after a long terminal session: the WebGL glyph cache overflowed and drew the wrong glyphs, so the cache is now cleared automatically before it fills up, with no need to switch fonts by hand
 - Fixed a brief freeze when switching the sidebar to the Workspaces panel: the panel repeated heavy work every time it showed, and now computes only what it needs so the switch stays responsive
+- Fixed jank when opening a commit's diff in the git graph: every diff line was rendered as a DOM node regardless of length, so large files mounted thousands at once; only the rows in the viewport are now rendered, keeping even very long diffs smooth
