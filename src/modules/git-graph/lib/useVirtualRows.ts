@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export interface VirtualRows {
   /** Attach to the scroll container. */
@@ -91,12 +91,16 @@ export function useVirtualRows(
     Math.ceil((scrolledIntoRows + viewport.height) / rowHeight) + overscan,
   );
 
+  // Stable identity so consumers passing this to onScroll don't re-bind it each
+  // render. setViewport from useState is stable, so no deps are needed.
+  const onScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    setViewport({ scrollTop: target.scrollTop, height: target.clientHeight });
+  }, []);
+
   return {
     scrollRef,
-    onScroll: (event) => {
-      const target = event.currentTarget;
-      setViewport({ scrollTop: target.scrollTop, height: target.clientHeight });
-    },
+    onScroll,
     start,
     end,
     offsetTop: start * rowHeight,
