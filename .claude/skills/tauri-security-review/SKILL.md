@@ -252,10 +252,13 @@ impl serde::Serialize for DbError { /* serialize as string */ }
 ### Pattern 9: Open URL With User-Controlled String
 
 ```rust
+// tauri-plugin-shell's `open` is deprecated in Tauri v2; use tauri-plugin-opener.
+use tauri_plugin_opener::OpenerExt;
+
 // ❌ WRONG — "javascript:..." or arbitrary scheme
 #[tauri::command]
 fn open_link(url: String, app: AppHandle) {
-    app.shell().open(&url, None).ok();
+    app.opener().open_url(&url, None::<&str>).ok();
 }
 
 // ✅ CORRECT — validate scheme + domain
@@ -265,7 +268,7 @@ fn open_link(url: String, app: AppHandle) -> Result<(), Error> {
     if !matches!(parsed.scheme(), "https" | "http") { return Err(Error::InvalidScheme); }
     let host = parsed.host_str().ok_or(Error::InvalidUrl)?;
     if !["docs.example.com", "github.com"].contains(&host) { return Err(Error::DomainNotAllowed); }
-    app.shell().open(parsed.as_str(), None).map_err(|_| Error::OpenFailed)?;
+    app.opener().open_url(parsed.as_str(), None::<&str>).map_err(|_| Error::OpenFailed)?;
     Ok(())
 }
 ```
