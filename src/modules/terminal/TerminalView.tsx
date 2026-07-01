@@ -1000,6 +1000,14 @@ export function TerminalView({
     if (!cwdTracking || sshRef.current) {
       return;
     }
+    // Windows has no cwd/foreground backend: pty_cwd and pty_foreground_command
+    // both resolve to None there (no /proc, no lsof — see read_process_cwd in
+    // src-tauri/src/modules/pty/session.rs), so this 1.2s-per-terminal poll would
+    // only fire IPC that always comes back empty. Skip it until a Windows cwd
+    // implementation exists.
+    if (IS_WINDOWS) {
+      return;
+    }
     let cancelled = false;
     // Seed with the shell's starting dir so the mount-time setRoot (which fires
     // with this same dir) does not echo a redundant `cd` back into the shell.
