@@ -141,7 +141,8 @@ function TabItem({ id }: { id: string }) {
           <span className="max-w-[160px] truncate">{tab.title}</span>
         </Tooltip>
       )}
-      <Tooltip label={dirty ? t("editor:unsaved") : t("actions.closeTab")}>
+      {/* The ✕ glyph is self-explanatory; only the dirty dot needs a hint. */}
+      <Tooltip label={dirty ? t("editor:unsaved") : undefined}>
         <button
           type="button"
           aria-label={dirty ? t("editor:unsaved") : t("actions.closeTab")}

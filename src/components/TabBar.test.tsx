@@ -35,14 +35,14 @@ afterEach(() => {
 });
 
 describe("TabBar close button tooltip", () => {
-  it("shows a Close Tab tooltip when hovering the tab close button", () => {
+  it("shows no tooltip on a clean tab's close button (the ✕ is self-explanatory)", () => {
     vi.useFakeTimers();
     try {
       render(<TabBar />);
       const close = screen.getByLabelText("Close Tab");
       fireEvent.mouseEnter(close.parentElement!);
-      act(() => vi.advanceTimersByTime(300));
-      expect(screen.getByRole("tooltip")).toHaveTextContent("Close Tab");
+      act(() => vi.advanceTimersByTime(1000));
+      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
