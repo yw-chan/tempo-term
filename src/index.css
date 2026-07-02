@@ -212,8 +212,11 @@ textarea:focus-visible,
    success/danger semantic tokens for full-line tints, solid word-level
    blocks, and a bold gutter color bar per changed line. merge-a = old side
    (danger), merge-b = new side (success). */
+/* The merge view scrolls as one container (its own base theme sets
+   overflow:auto and forces the inner editors to auto height); it only needs
+   a bounded height. Don't constrain the inner editor layers — that empties
+   the scroll area and makes long diffs unscrollable. */
 .diff-merge-view .cm-mergeView { height: 100%; }
-.diff-merge-view .cm-mergeViewEditors { height: 100%; }
 .diff-merge-view .cm-merge-a .cm-changedLine {
   background: color-mix(in srgb, var(--color-danger) 10%, transparent);
 }
@@ -235,10 +238,28 @@ textarea:focus-visible,
   background: color-mix(in srgb, var(--color-danger) 32%, transparent);
   border-radius: 2px;
 }
-.diff-merge-view .cm-changeGutter { width: 4px; }
-.diff-merge-view .cm-merge-a .cm-changedLineGutter { background: var(--color-danger); }
-.diff-merge-view .cm-merge-b .cm-changedLineGutter { background: var(--color-success); }
-.diff-merge-view .cm-deletedLineGutter { background: var(--color-danger); }
+/* The change gutter shows explicit +/− marks (like a unified diff) instead
+   of the library's default color blobs. */
+.diff-merge-view .cm-changeGutter { width: 18px; }
+.diff-merge-view .cm-changedLineGutter,
+.diff-merge-view .cm-deletedLineGutter {
+  background: transparent !important;
+  text-align: center;
+  font-weight: 700;
+  line-height: inherit;
+}
+.diff-merge-view .cm-merge-a .cm-changedLineGutter::before {
+  content: "−";
+  color: var(--color-danger);
+}
+.diff-merge-view .cm-merge-b .cm-changedLineGutter::before {
+  content: "+";
+  color: var(--color-success);
+}
+.diff-merge-view .cm-deletedLineGutter::before {
+  content: "−";
+  color: var(--color-danger);
+}
 
 .note-md strong { font-weight: 700; }
 .note-md em { font-style: italic; }

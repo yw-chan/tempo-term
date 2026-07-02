@@ -96,7 +96,9 @@ export function DiffTabContent({ path, staged }: DiffTabContentProps) {
         EditorState.readOnly.of(true),
         EditorView.editable.of(false),
         editorSyntaxTheme(themeId),
-        // Fixed 13px to match the Git Graph diff view's type size.
+        // Fixed 13px to match the Git Graph diff view's type size. Height and
+        // scrolling belong to the outer .cm-mergeView container (the merge
+        // package forces the editors themselves to auto height).
         EditorView.theme({
           "&": { fontSize: "13px" },
           ".cm-content, .cm-gutters, .cm-scroller": { fontFamily },
@@ -129,7 +131,7 @@ export function DiffTabContent({ path, staged }: DiffTabContentProps) {
       {error ? (
         <p className="px-3 py-2 text-xs text-danger">{t("diffLoadError")}</p>
       ) : (
-        <div ref={containerRef} className="diff-merge-view min-h-0 flex-1 overflow-auto" />
+        <div ref={containerRef} className="diff-merge-view min-h-0 flex-1 overflow-hidden" />
       )}
     </div>
   );
