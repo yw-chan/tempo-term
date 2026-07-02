@@ -21,7 +21,12 @@ interface MutableFolder<T> {
   kind: "folder";
   name: string;
   path: string;
-  children: Map<string, MutableFolder<T> | TreeFileNode<T>>;
+  // Folders and files are tracked in separate maps (not one map keyed by
+  // name) so a file and a folder that happen to share a name — e.g. a
+  // "config" file replaced by a "config/" directory in the same uncommitted
+  // change — don't overwrite each other and silently drop one of the two.
+  folders: Map<string, MutableFolder<T>>;
+  files: Map<string, TreeFileNode<T>>;
 }
 
 /**
@@ -31,15 +36,21 @@ interface MutableFolder<T> {
  * "dist/aaa" and "dist/bbb" becoming two unrelated top-level groups.
  */
 export function buildFileTree<T extends { path: string }>(files: T[]): TreeNode<T>[] {
-  const root: MutableFolder<T> = { kind: "folder", name: "", path: "", children: new Map() };
+  const root: MutableFolder<T> = {
+    kind: "folder",
+    name: "",
+    path: "",
+    folders: new Map(),
+    files: new Map(),
+  };
 
   function ensureFolder(parent: MutableFolder<T>, name: string, path: string): MutableFolder<T> {
-    const existing = parent.children.get(name);
-    if (existing && existing.kind === "folder") {
+    const existing = parent.folders.get(name);
+    if (existing) {
       return existing;
     }
-    const folder: MutableFolder<T> = { kind: "folder", name, path, children: new Map() };
-    parent.children.set(name, folder);
+    const folder: MutableFolder<T> = { kind: "folder", name, path, folders: new Map(), files: new Map() };
+    parent.folders.set(name, folder);
     return folder;
   }
 
@@ -56,22 +67,17 @@ export function buildFileTree<T extends { path: string }>(files: T[]): TreeNode<
       cursor = ensureFolder(cursor, segments[i], builtPath);
     }
     const fileName = segments[segments.length - 1] ?? normalized;
-    cursor.children.set(fileName, { kind: "file", name: fileName, path: normalized, file });
+    cursor.files.set(fileName, { kind: "file", name: fileName, path: normalized, file });
   }
 
   function toSortedArray(folder: MutableFolder<T>): TreeNode<T>[] {
-    const entries = Array.from(folder.children.values());
-    entries.sort((a, b) => {
-      if (a.kind !== b.kind) {
-        return a.kind === "folder" ? -1 : 1;
-      }
-      return a.name.localeCompare(b.name);
-    });
-    return entries.map((entry) =>
-      entry.kind === "folder"
-        ? { kind: "folder", name: entry.name, path: entry.path, children: toSortedArray(entry) }
-        : entry,
+    const folderNodes: TreeNode<T>[] = Array.from(folder.folders.values())
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((f) => ({ kind: "folder", name: f.name, path: f.path, children: toSortedArray(f) }));
+    const fileNodes: TreeNode<T>[] = Array.from(folder.files.values()).sort((a, b) =>
+      a.name.localeCompare(b.name),
     );
+    return [...folderNodes, ...fileNodes];
   }
 
   return toSortedArray(root);

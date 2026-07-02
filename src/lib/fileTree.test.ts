@@ -66,6 +66,29 @@ describe("buildFileTree", () => {
     const dirLeaf = b.children.find((c) => c.name === "dir");
     expect(dirLeaf).toMatchObject({ kind: "file", file: { path: "a/b/dir/" } });
   });
+
+  it("keeps both entries when a file and a folder share the exact same name", () => {
+    // e.g. a single "config" file got deleted and replaced by a "config/"
+    // directory in the same uncommitted change — git status reports both a
+    // deleted "config" entry and a new "config/default.json" entry.
+    const tree = buildFileTree([item("config"), item("config/default.json")]);
+
+    expect(tree).toHaveLength(2);
+    const folder = tree.find((n) => n.kind === "folder") as TreeFolderNode<Item>;
+    const file = tree.find((n) => n.kind === "file");
+    expect(folder).toMatchObject({ kind: "folder", name: "config", path: "config" });
+    expect(folder.children).toMatchObject([{ kind: "file", path: "config/default.json" }]);
+    expect(file).toMatchObject({ kind: "file", name: "config", path: "config" });
+  });
+
+  it("keeps both entries when the same-name collision happens in the other file/folder order", () => {
+    const tree = buildFileTree([item("config/default.json"), item("config")]);
+
+    expect(tree).toHaveLength(2);
+    const folder = tree.find((n) => n.kind === "folder") as TreeFolderNode<Item>;
+    expect(folder.children).toMatchObject([{ kind: "file", path: "config/default.json" }]);
+    expect(tree.find((n) => n.kind === "file")).toMatchObject({ path: "config" });
+  });
 });
 
 describe("collectDescendantFiles", () => {

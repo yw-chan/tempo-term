@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import { GitGraphTabContent } from "./GitGraphTabContent";
@@ -64,7 +64,7 @@ describe("GitGraphTabContent pending commit selection", () => {
     expect(usePendingGraphSelectionStore.getState().hash).toBeNull();
   });
 
-  it("gives up silently once hasMore is false and the hash is never found", async () => {
+  it("gives up silently once retries are exhausted and the hash is never found", async () => {
     vi.mocked(gitGraphLog).mockResolvedValue(commitList(["aaa1111"], false));
     usePendingGraphSelectionStore.getState().request("zzz9999");
 
@@ -72,5 +72,78 @@ describe("GitGraphTabContent pending commit selection", () => {
 
     await waitFor(() => expect(screen.getByText("msg aaa1111")).toBeInTheDocument());
     await waitFor(() => expect(usePendingGraphSelectionStore.getState().hash).toBeNull());
+  });
+
+  it("retries even when hasMore is already false, since a new commit can land after the tab's last load", async () => {
+    // The tab already loaded and saw no more history (hasMore: false) before
+    // the sidebar's commit form created a brand new commit — reload() must
+    // still be retried so it re-queries git log and picks the new commit up.
+    vi.mocked(gitGraphLog)
+      .mockResolvedValueOnce(commitList(["aaa1111"], false))
+      .mockResolvedValueOnce(commitList(["aaa1111", "ddd4444"], false));
+    usePendingGraphSelectionStore.getState().request("ddd4444");
+
+    render(<GitGraphTabContent />);
+
+    await waitFor(() => expect(screen.getByText("msg ddd4444")).toBeInTheDocument());
+    expect(usePendingGraphSelectionStore.getState().hash).toBeNull();
+  });
+
+  it("selects a second commit requested after the tab is already mounted with an unchanged commit list", async () => {
+    // The Git Graph tab stays mounted for the whole session once opened, so
+    // a jump request that arrives while `commits` never changes again must
+    // still be picked up — not silently dropped because the effect only
+    // reran on [commits, hasMore, loadMore] the first time.
+    vi.mocked(gitGraphLog).mockResolvedValue(commitList(["aaa1111", "bbb2222"], false));
+    usePendingGraphSelectionStore.getState().request("aaa1111");
+
+    render(<GitGraphTabContent />);
+
+    await waitFor(() => expect(usePendingGraphSelectionStore.getState().hash).toBeNull());
+
+    usePendingGraphSelectionStore.getState().request("bbb2222");
+
+    await waitFor(() => expect(usePendingGraphSelectionStore.getState().hash).toBeNull());
+    await waitFor(() => expect(screen.getAllByText("bbb2222").length).toBeGreaterThan(0));
+  });
+
+  it("does not select a commit that a search filter is currently hiding, and gives up without retrying", async () => {
+    vi.mocked(gitGraphLog).mockResolvedValue(commitList(["aaa1111", "bbb2222"], false));
+    render(<GitGraphTabContent />);
+    await screen.findByText("msg aaa1111");
+
+    fireEvent.click(screen.getByRole("button", { name: "Search commits" }));
+    fireEvent.change(screen.getByPlaceholderText("Search message, author, hash…"), {
+      target: { value: "aaa1111" },
+    });
+    await waitFor(() => expect(screen.queryByText("msg bbb2222")).not.toBeInTheDocument());
+
+    usePendingGraphSelectionStore.getState().request("bbb2222");
+
+    await waitFor(() => expect(usePendingGraphSelectionStore.getState().hash).toBeNull());
+    // loadMore would have paged in nothing new (there's nothing more to load
+    // here), so this also confirms no extra gitGraphLog calls were wasted
+    // retrying a commit the search filter — not pagination — was hiding.
+    expect(vi.mocked(gitGraphLog)).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives a fresh retry budget to a new request instead of inheriting a previous request's leftover attempts", async () => {
+    // First request ("missing") burns through some retries against a repo
+    // that never grows past one page, so it gives up after 5 attempts. A
+    // later request for a real commit must not inherit that spent budget.
+    vi.mocked(gitGraphLog).mockResolvedValue(commitList(["aaa1111"], false));
+    usePendingGraphSelectionStore.getState().request("missing0");
+    render(<GitGraphTabContent />);
+    await waitFor(() => expect(usePendingGraphSelectionStore.getState().hash).toBeNull());
+    const callsAfterFirstGiveUp = vi.mocked(gitGraphLog).mock.calls.length;
+    expect(callsAfterFirstGiveUp).toBeGreaterThan(1);
+
+    vi.mocked(gitGraphLog)
+      .mockResolvedValueOnce(commitList(["aaa1111"], true))
+      .mockResolvedValueOnce(commitList(["aaa1111", "eee5555"], false));
+    usePendingGraphSelectionStore.getState().request("eee5555");
+
+    await waitFor(() => expect(screen.getAllByText("eee5555").length).toBeGreaterThan(0));
+    expect(usePendingGraphSelectionStore.getState().hash).toBeNull();
   });
 });

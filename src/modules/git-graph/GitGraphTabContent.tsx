@@ -206,32 +206,57 @@ export function GitGraphTabContent() {
   }, [repo, limit, reload, options.branch, options.includeRemotes, options.includeTags, options.includeStashes, options.order]);
 
   // Consume a pending "select this commit" request from the sidebar's history
-  // list. If the commit isn't in the currently loaded page, page in more
-  // history (capped) before giving up silently — this only fails when the
-  // commit belongs to a branch/filter the graph isn't currently showing.
+  // list. Subscribes to the store's hash (not a one-shot getState() read) so
+  // this fires for every new request, including one that arrives while the
+  // tab is already mounted with an unchanged commit list — Git Graph tabs
+  // stay mounted for the whole session once opened, so a second "View in
+  // Graph" click would otherwise never be observed by this effect at all.
+  const pendingHash = usePendingGraphSelectionStore((s) => s.hash);
   const pendingSelectionAttempts = useRef(0);
+  const pendingSelectionTarget = useRef<string | null>(null);
   useEffect(() => {
-    const pendingHash = usePendingGraphSelectionStore.getState().hash;
-    if (!pendingHash || commits.length === 0) {
+    if (!pendingHash) {
+      pendingSelectionTarget.current = null;
       return;
     }
-    const match = commits.find(
-      (c) => c.hash.startsWith(pendingHash) || pendingHash.startsWith(c.hash),
-    );
-    if (match) {
-      setSelected(match);
+    // A fresh hash gets its own full retry budget — an exhausted search for
+    // a previous commit must not carry over and starve this one.
+    if (pendingSelectionTarget.current !== pendingHash) {
+      pendingSelectionTarget.current = pendingHash;
+      pendingSelectionAttempts.current = 0;
+    }
+    if (commits.length === 0) {
+      return;
+    }
+    const hashMatches = (commitHash: string) =>
+      commitHash.startsWith(pendingHash) || pendingHash.startsWith(commitHash);
+    const visibleMatch = visibleCommits.find((c) => hashMatches(c.hash));
+    if (visibleMatch) {
+      setSelected(visibleMatch);
       usePendingGraphSelectionStore.getState().consume();
       pendingSelectionAttempts.current = 0;
       return;
     }
-    if (hasMore && pendingSelectionAttempts.current < 5) {
+    // Present in the full list but hidden by the current search filter —
+    // paging in more history can't fix that, so don't waste retries on it.
+    if (commits.some((c) => hashMatches(c.hash))) {
+      usePendingGraphSelectionStore.getState().consume();
+      pendingSelectionAttempts.current = 0;
+      return;
+    }
+    // Not loaded yet. Keep paging even once hasMore is already false: it
+    // reflects the state as of the last load, not the repo's current state
+    // — e.g. the tab was already open when a new commit landed elsewhere
+    // (the sidebar's own commit form). loadMore's reload() re-queries git
+    // log for real, so it picks up that new commit regardless.
+    if (pendingSelectionAttempts.current < 5) {
       pendingSelectionAttempts.current += 1;
       loadMore();
     } else {
       usePendingGraphSelectionStore.getState().consume();
       pendingSelectionAttempts.current = 0;
     }
-  }, [commits, hasMore, loadMore]);
+  }, [pendingHash, commits, visibleCommits, loadMore]);
 
   // Turning remotes off hides remote branches; if one was selected, fall back
   // to Show All so the dropdown value and selectedBranch stay in sync.
