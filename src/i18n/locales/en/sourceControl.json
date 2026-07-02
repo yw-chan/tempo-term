@@ -25,5 +25,17 @@
   "nothingToCommit": "Stage changes and write a message to commit",
   "diffStaged": "Staged",
   "diffUnstaged": "Working tree",
-  "diffLoadError": "Couldn't load the comparison"
+  "diffLoadError": "Couldn't load the comparison",
+  "discard": "Discard Changes",
+  "discardTitle": "Discard Changes",
+  "discardMessage": "Discard changes to {{name}}? This cannot be undone.",
+  "discardConfirm": "Discard",
+  "menuOpenFile": "Open File",
+  "menuOpenInNewTab": "Open in New Tab",
+  "menuShowDiff": "Show Diff",
+  "menuCopyPath": "Copy Path",
+  "menuCopyRelativePath": "Copy Relative Path",
+  "menuRevealFinder": "Reveal in Finder",
+  "menuCopyHash": "Copy Hash",
+  "menuCopyMessage": "Copy Message"
 }
