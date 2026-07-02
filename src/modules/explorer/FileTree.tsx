@@ -60,9 +60,12 @@ function TreeNode({ entry, depth, onReloadParent, collapseSignal }: TreeNodeProp
   // track hover manually to highlight just this row.
   const [hovered, setHovered] = useState(false);
 
-  // Runs on mount too, but collapsing an already-collapsed node is a no-op.
+  // Skip the initial value (0 / undefined) so a future restore-on-mount of
+  // expanded state wouldn't be immediately collapsed.
   useEffect(() => {
-    setExpanded(false);
+    if (collapseSignal) {
+      setExpanded(false);
+    }
   }, [collapseSignal]);
 
   const openFromSidebar = useTabsStore((s) => s.openFromSidebar);

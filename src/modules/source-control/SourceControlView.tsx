@@ -329,13 +329,13 @@ export function SourceControlView() {
             rows={2}
             className="w-full resize-none rounded-md border border-border bg-bg px-2 py-1.5 pr-9 text-sm text-fg outline-none focus:border-accent"
           />
-          <Tooltip label={t("aiGenerate")}>
+          <Tooltip label={t("aiGenerate")} className="absolute right-1.5 top-1.5">
             <button
               type="button"
               disabled={!hasStaged || generating}
               onClick={() => void aiGenerate()}
               aria-label={t("aiGenerate")}
-              className="absolute right-1.5 top-1.5 rounded p-1 text-fg-muted hover:bg-bg-elevated hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded p-1 text-fg-muted hover:bg-bg-elevated hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
             >
               {generating ? (
                 <Loader2 size={15} className="animate-spin" />

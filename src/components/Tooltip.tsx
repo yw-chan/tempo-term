@@ -30,13 +30,13 @@ export function Tooltip({
 }: TooltipProps) {
   const anchorRef = useRef<HTMLSpanElement>(null);
   const tipRef = useRef<HTMLSpanElement>(null);
-  const timerRef = useRef<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
 
   const cancel = useCallback(() => {
     if (timerRef.current !== null) {
-      window.clearTimeout(timerRef.current);
+      clearTimeout(timerRef.current);
       timerRef.current = null;
     }
     setAnchor(null);
@@ -57,7 +57,7 @@ export function Tooltip({
     if (!label || timerRef.current !== null) {
       return;
     }
-    timerRef.current = window.setTimeout(() => {
+    timerRef.current = setTimeout(() => {
       timerRef.current = null;
       // Absolutely-positioned children (git graph nodes) leave the wrapper
       // zero-sized, so anchor on the child element when there is one.
