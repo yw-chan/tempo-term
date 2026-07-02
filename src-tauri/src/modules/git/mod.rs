@@ -469,18 +469,26 @@ pub fn file_at_rev(repo_path: &str, rev: &str, path: &str) -> Result<String, Str
     };
     match run_git(repo_path, &["show", &spec]) {
         Ok(content) => Ok(content),
-        // `git show` wording varies by rev kind and version ("does not exist",
-        // "exists on disk, but not in", "is in the index, but not at stage").
-        // Any path-shaped failure means "no such file at that rev" → empty.
-        Err(err) if err.contains(path) => Ok(String::new()),
+        // `git show` wording varies by rev kind and version; match the known
+        // "no such file at that rev" messages so a genuine failure (corrupt
+        // object, bad repo) still surfaces instead of reading as empty.
+        Err(err)
+            if err.contains("does not exist")
+                || err.contains("exists on disk, but not in")
+                || err.contains("is in the index, but not at stage") =>
+        {
+            Ok(String::new())
+        }
         Err(err) => Err(err),
     }
 }
 
-/// Discard unstaged changes to one tracked file (`git restore -- <path>`).
+/// Discard unstaged changes to one tracked file (`git restore`). The pathspec
+/// is wrapped in `:(literal)` so git magic like `:/` or `:(glob)` in a crafted
+/// path cannot widen the restore beyond the named file.
 pub fn restore_file(repo_path: &str, path: &str) -> Result<(), String> {
     ensure_not_flag(path)?;
-    run_git(repo_path, &["restore", "--", path]).map(|_| ())
+    run_git(repo_path, &["restore", "--", &format!(":(literal){path}")]).map(|_| ())
 }
 
 /// Push the current branch to its remote.
