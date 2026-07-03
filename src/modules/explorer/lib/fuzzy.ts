@@ -12,13 +12,40 @@ export interface FuzzyResult {
 
 const SEPARATORS = "/\\_-. ";
 
+/**
+ * A query with multiple space-separated words requires each word to match
+ * somewhere in the target (in any order relative to each other) rather than
+ * being matched as one literal subsequence including the space character —
+ * paths never contain a literal space, so a single-pass match would always
+ * fail once the query had more than one word in it.
+ */
 export function fuzzyMatch(query: string, target: string): FuzzyResult {
-  if (query === "") {
+  const words = query.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
     return { matched: true, score: 0, indices: [] };
   }
 
-  const q = query.toLowerCase();
+  // Lowercase the target once and reuse it across words, rather than
+  // redoing it per word for the same target.
   const t = target.toLowerCase();
+  let score = 0;
+  const indices = new Set<number>();
+  for (const word of words) {
+    const result = matchWord(word, target, t);
+    if (!result.matched) {
+      return { matched: false, score: 0, indices: [] };
+    }
+    score += result.score;
+    for (const index of result.indices) {
+      indices.add(index);
+    }
+  }
+  return { matched: true, score, indices: [...indices].sort((a, b) => a - b) };
+}
+
+/** Matches a single word (no whitespace) as a subsequence of `t`, the already-lowercased `target`. */
+function matchWord(query: string, target: string, t: string): FuzzyResult {
+  const q = query.toLowerCase();
   const indices: number[] = [];
   let qi = 0;
   let score = 0;
