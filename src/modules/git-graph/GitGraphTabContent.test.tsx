@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import { GitGraphTabContent } from "./GitGraphTabContent";
@@ -41,7 +41,7 @@ describe("GitGraphTabContent pending commit selection", () => {
   });
 
   it("selects the pending commit once it is loaded", async () => {
-    vi.mocked(gitGraphLog).mockResolvedValue(commitList(["aaa1111", "bbb2222"], false));
+    vi.mocked(gitGraphLog).mockImplementation(async () => commitList(["aaa1111", "bbb2222"], false));
     usePendingGraphSelectionStore.getState().request("bbb2222");
 
     render(<GitGraphTabContent />);
@@ -65,7 +65,7 @@ describe("GitGraphTabContent pending commit selection", () => {
   });
 
   it("gives up silently once retries are exhausted and the hash is never found", async () => {
-    vi.mocked(gitGraphLog).mockResolvedValue(commitList(["aaa1111"], false));
+    vi.mocked(gitGraphLog).mockImplementation(async () => commitList(["aaa1111"], false));
     usePendingGraphSelectionStore.getState().request("zzz9999");
 
     render(<GitGraphTabContent />);
@@ -94,7 +94,7 @@ describe("GitGraphTabContent pending commit selection", () => {
     // a jump request that arrives while `commits` never changes again must
     // still be picked up — not silently dropped because the effect only
     // reran on [commits, hasMore, loadMore] the first time.
-    vi.mocked(gitGraphLog).mockResolvedValue(commitList(["aaa1111", "bbb2222"], false));
+    vi.mocked(gitGraphLog).mockImplementation(async () => commitList(["aaa1111", "bbb2222"], false));
     usePendingGraphSelectionStore.getState().request("aaa1111");
 
     render(<GitGraphTabContent />);
@@ -108,7 +108,7 @@ describe("GitGraphTabContent pending commit selection", () => {
   });
 
   it("does not select a commit that a search filter is currently hiding, and gives up without retrying", async () => {
-    vi.mocked(gitGraphLog).mockResolvedValue(commitList(["aaa1111", "bbb2222"], false));
+    vi.mocked(gitGraphLog).mockImplementation(async () => commitList(["aaa1111", "bbb2222"], false));
     render(<GitGraphTabContent />);
     await screen.findByText("msg aaa1111");
 
@@ -131,7 +131,7 @@ describe("GitGraphTabContent pending commit selection", () => {
     // First request ("missing") burns through some retries against a repo
     // that never grows past one page, so it gives up after 5 attempts. A
     // later request for a real commit must not inherit that spent budget.
-    vi.mocked(gitGraphLog).mockResolvedValue(commitList(["aaa1111"], false));
+    vi.mocked(gitGraphLog).mockImplementation(async () => commitList(["aaa1111"], false));
     usePendingGraphSelectionStore.getState().request("missing0");
     render(<GitGraphTabContent />);
     await waitFor(() => expect(usePendingGraphSelectionStore.getState().hash).toBeNull());
@@ -145,5 +145,42 @@ describe("GitGraphTabContent pending commit selection", () => {
 
     await waitFor(() => expect(screen.getAllByText("eee5555").length).toBeGreaterThan(0));
     expect(usePendingGraphSelectionStore.getState().hash).toBeNull();
+  });
+
+  it("does not burn retries or stack loads on re-renders while a page load is in flight", async () => {
+    // Real git takes long enough that unrelated re-renders (search typing,
+    // spinner state) happen while a retry's reload is pending. Each of those
+    // re-renders must not count as another attempt — otherwise the 5-attempt
+    // budget burns out and consumes the pending hash before git ever answers.
+    let resolveSecond!: (value: ReturnType<typeof commitList>) => void;
+    const second = new Promise<ReturnType<typeof commitList>>((resolve) => {
+      resolveSecond = resolve;
+    });
+    vi.mocked(gitGraphLog)
+      .mockResolvedValueOnce(commitList(["aaa1111"], true))
+      .mockImplementation(() => second);
+
+    render(<GitGraphTabContent />);
+    await screen.findByText("msg aaa1111");
+
+    usePendingGraphSelectionStore.getState().request("ccc3333");
+    await waitFor(() => expect(vi.mocked(gitGraphLog)).toHaveBeenCalledTimes(2));
+
+    fireEvent.click(screen.getByRole("button", { name: "Search commits" }));
+    fireEvent.change(screen.getByPlaceholderText("Search message, author, hash…"), {
+      target: { value: "zzz" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Search message, author, hash…"), {
+      target: { value: "" },
+    });
+
+    expect(vi.mocked(gitGraphLog)).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveSecond(commitList(["aaa1111", "ccc3333"], false));
+    });
+
+    await waitFor(() => expect(usePendingGraphSelectionStore.getState().hash).toBeNull());
+    expect(screen.getAllByText("ccc3333").length).toBeGreaterThan(0);
   });
 });

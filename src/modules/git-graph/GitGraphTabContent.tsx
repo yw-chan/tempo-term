@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { GitCommit } from "lucide-react";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
@@ -104,7 +104,13 @@ export function GitGraphTabContent() {
     order: commitOrder,
   };
 
-  const visibleCommits = filterCommits(commits, searchQuery);
+  // Memoized so the pending-selection effect below only re-runs when the
+  // inputs really change — a fresh array identity every render would re-fire
+  // it on every unrelated re-render.
+  const visibleCommits = useMemo(
+    () => filterCommits(commits, searchQuery),
+    [commits, searchQuery],
+  );
 
   const currentBranch = branches.find((b) => b.isCurrent)?.name ?? "—";
 
@@ -214,6 +220,7 @@ export function GitGraphTabContent() {
   const pendingHash = usePendingGraphSelectionStore((s) => s.hash);
   const pendingSelectionAttempts = useRef(0);
   const pendingSelectionTarget = useRef<string | null>(null);
+  const pendingRetryCommits = useRef<CommitNode[] | null>(null);
   useEffect(() => {
     if (!pendingHash) {
       pendingSelectionTarget.current = null;
@@ -224,6 +231,7 @@ export function GitGraphTabContent() {
     if (pendingSelectionTarget.current !== pendingHash) {
       pendingSelectionTarget.current = pendingHash;
       pendingSelectionAttempts.current = 0;
+      pendingRetryCommits.current = null;
     }
     if (commits.length === 0) {
       return;
@@ -250,8 +258,15 @@ export function GitGraphTabContent() {
     // (the sidebar's own commit form). loadMore's reload() re-queries git
     // log for real, so it picks up that new commit regardless.
     if (pendingSelectionAttempts.current < 5) {
-      pendingSelectionAttempts.current += 1;
-      loadMore();
+      // One load per commits generation: effect re-runs while that load is
+      // still in flight (search typing, loadMore's own limit bump) must not
+      // burn the retry budget or stack duplicate reloads — each reload's
+      // setCommits produces a new array identity, which unlocks the next try.
+      if (pendingRetryCommits.current !== commits) {
+        pendingRetryCommits.current = commits;
+        pendingSelectionAttempts.current += 1;
+        loadMore();
+      }
     } else {
       usePendingGraphSelectionStore.getState().consume();
       pendingSelectionAttempts.current = 0;
