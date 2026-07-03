@@ -243,7 +243,8 @@ export function GitGraphToolbar({
               options={branchOptions}
               onChange={(v) => onSelectBranch(v === labels.showAll ? null : v)}
               ariaLabel={labels.branches}
-              className="w-48"
+              textClassName="text-[13px]"
+              noTruncate
             />
           </div>
         )}
@@ -264,7 +265,8 @@ export function GitGraphToolbar({
                 }
               }}
               ariaLabel={labels.worktree}
-              className="w-44"
+              textClassName="text-[13px]"
+              noTruncate
             />
           </div>
         )}
