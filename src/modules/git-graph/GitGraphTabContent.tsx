@@ -114,16 +114,22 @@ export function GitGraphTabContent() {
   const reload = useCallback(
     async (repoPath: string, nextLimit: number, opts: GraphOptions) => {
       try {
-        const [log, branchList] = await Promise.all([
+        const [log, branchList, worktreeList] = await Promise.all([
           gitGraphLog(repoPath, nextLimit, opts),
           gitBranches(repoPath),
+          // Refetched on every reload so the selector's branch labels track
+          // in-app checkouts and `git worktree add/remove` runs in the app's
+          // own terminal; a failure just hides the selector.
+          gitWorktreeList(repoPath).catch((): WorktreeItem[] => []),
         ]);
         setCommits(log.commits);
         setHasMore(log.hasMore);
         setBranches(branchList);
+        setWorktrees(worktreeList);
       } catch (err: unknown) {
         setCommits([]);
         setBranches([]);
+        setWorktrees([]);
         setHasMore(false);
         setError(getErrorMessage(err));
       }
@@ -159,31 +165,6 @@ export function GitGraphTabContent() {
     };
   }, [rootPath]);
 
-  // The worktree set only changes on external `git worktree add/remove`, so
-  // fetch once per resolved repo; a failure (not a repo) just hides the
-  // selector, matching the toolbar's other optional data.
-  useEffect(() => {
-    if (!repo) {
-      setWorktrees([]);
-      return;
-    }
-    let cancelled = false;
-    gitWorktreeList(repo)
-      .then((list) => {
-        if (!cancelled) {
-          setWorktrees(list);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setWorktrees([]);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [repo]);
-
   const handleSelectWorktree = useCallback((path: string) => {
     // Switching worktree = switching the app's workspace root; the rootPath
     // effect above re-resolves the repo and reloads everything, and the
@@ -194,6 +175,7 @@ export function GitGraphTabContent() {
   // Initial load, and reload whenever a display option changes.
   useEffect(() => {
     if (!repo) {
+      setWorktrees([]);
       return;
     }
     setLimit(PAGE_SIZE);

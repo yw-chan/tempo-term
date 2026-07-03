@@ -306,18 +306,20 @@ pub struct WorktreeListItem {
 /// Lists every worktree of the repository via `git worktree list --porcelain`:
 /// blank-line-separated blocks of `worktree <path>`, `HEAD <sha>`, then
 /// `branch refs/heads/<name>` or `detached`. A `bare` block has no working
-/// tree to switch to, so it is dropped.
+/// tree to switch to and a `prunable` one no longer exists on disk, so both
+/// are dropped — offering either as a switch target would strand the app's
+/// workspace root somewhere unusable.
 pub fn worktree_list(repo_path: &str) -> Result<Vec<WorktreeListItem>, String> {
     let stdout = run_git(repo_path, &["worktree", "list", "--porcelain"])?;
     let mut items = Vec::new();
     let mut path: Option<String> = None;
     let mut branch: Option<String> = None;
-    let mut bare = false;
+    let mut skip = false;
 
     for line in stdout.lines().chain(std::iter::once("")) {
         if line.is_empty() {
             if let Some(p) = path.take() {
-                if !bare {
+                if !skip {
                     items.push(WorktreeListItem {
                         path: p,
                         branch: branch.take(),
@@ -325,13 +327,13 @@ pub fn worktree_list(repo_path: &str) -> Result<Vec<WorktreeListItem>, String> {
                 }
             }
             branch = None;
-            bare = false;
+            skip = false;
         } else if let Some(rest) = line.strip_prefix("worktree ") {
             path = Some(rest.to_string());
         } else if let Some(rest) = line.strip_prefix("branch ") {
             branch = Some(rest.strip_prefix("refs/heads/").unwrap_or(rest).to_string());
-        } else if line == "bare" {
-            bare = true;
+        } else if line == "bare" || line == "prunable" || line.starts_with("prunable ") {
+            skip = true;
         }
         // `HEAD <sha>` and `detached` lines are ignored: branch simply stays
         // None for a detached worktree.
@@ -1238,6 +1240,34 @@ mod tests {
         let items = worktree_list(&main_path).unwrap();
         assert_eq!(items.len(), 2);
         assert_eq!(items[1].branch, None);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn worktree_list_skips_prunable_worktrees_whose_directory_is_gone() {
+        let root = temp_repo_dir("wtl-prunable");
+        let main = root.join("main");
+        std::fs::create_dir_all(&main).unwrap();
+        let main_path = main.to_string_lossy().to_string();
+        run_git(&main_path, &["init", "-b", "main"]).unwrap();
+        run_git(&main_path, &["config", "user.email", "t@t.dev"]).unwrap();
+        run_git(&main_path, &["config", "user.name", "Tester"]).unwrap();
+        std::fs::write(main.join("a.txt"), "hi").unwrap();
+        run_git(&main_path, &["add", "."]).unwrap();
+        run_git(&main_path, &["commit", "-m", "init"]).unwrap();
+        let wt = root.join("wt");
+        let wt_path = wt.to_string_lossy().to_string();
+        run_git(&main_path, &["worktree", "add", &wt_path, "-b", "feature"]).unwrap();
+
+        // Delete the worktree directory without `git worktree prune` — git
+        // still reports the entry, marked `prunable`, and switching the app
+        // to a nonexistent directory would strand the workspace root there.
+        std::fs::remove_dir_all(&wt).unwrap();
+
+        let items = worktree_list(&main_path).unwrap();
+        assert_eq!(items.len(), 1);
+        assert!(items[0].path.ends_with("/main"));
 
         let _ = std::fs::remove_dir_all(&root);
     }

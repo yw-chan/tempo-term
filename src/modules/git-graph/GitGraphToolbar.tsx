@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Combobox } from "@/components/Combobox";
 import { Tooltip } from "@/components/Tooltip";
+import { basename } from "@/modules/explorer/lib/paths";
 import type { WorktreeItem } from "./lib/gitGraphBridge";
 import type { Branch, CommitOrder } from "./types";
 
@@ -18,13 +19,6 @@ import type { Branch, CommitOrder } from "./types";
 // row (branch label + combobox + remote checkbox + four icons + HEAD text) just
 // begins to crowd in a split panel.
 const COMPACT_WIDTH = 620;
-
-/** Last path segment; handles both / and \ separators (git on Windows may
- * print either). */
-function worktreeBasename(path: string): string {
-  const segments = path.split(/[\\/]/).filter(Boolean);
-  return segments[segments.length - 1] ?? path;
-}
 
 interface WorktreeOption {
   label: string;
@@ -36,7 +30,7 @@ interface WorktreeOption {
  * string value). */
 function buildWorktreeOptions(worktrees: WorktreeItem[]): WorktreeOption[] {
   const base = worktrees.map((w) => ({
-    label: w.branch ? `${worktreeBasename(w.path)} (${w.branch})` : worktreeBasename(w.path),
+    label: w.branch ? `${basename(w.path)} (${w.branch})` : basename(w.path),
     path: w.path,
   }));
   const counts = new Map<string, number>();
@@ -212,6 +206,28 @@ export function GitGraphToolbar({
   // A single-worktree repo (the common case) hides the control entirely.
   const showWorktreeControls = showBranchControls && worktreeOptions.length > 1;
 
+  // git refuses `git checkout <branch>` for a branch some other worktree has
+  // checked out — disable those menu entries and show where each one lives.
+  const branchesInOtherWorktrees = new Map<string, string>();
+  for (const w of worktrees) {
+    if (w.branch && (!currentWorktreePath || !samePath(w.path, currentWorktreePath))) {
+      branchesInOtherWorktrees.set(w.branch, basename(w.path));
+    }
+  }
+
+  const switchBranchLabel = `${labels.switchBranch} (${labels.head}: ${currentBranch})`;
+  const branchMenu = branchMenuOpen ? (
+    <BranchMenu
+      locals={locals}
+      remotes={remotes}
+      currentBranch={currentBranch}
+      branchesInOtherWorktrees={branchesInOtherWorktrees}
+      onCheckoutBranch={onCheckoutBranch}
+      onCheckoutRemoteBranch={onCheckoutRemoteBranch}
+      onClose={() => setBranchMenuOpen(false)}
+    />
+  ) : null;
+
   return (
     <div
       ref={rootRef}
@@ -238,7 +254,7 @@ export function GitGraphToolbar({
             <Combobox
               value={
                 currentWorktree?.label ??
-                (currentWorktreePath ? worktreeBasename(currentWorktreePath) : "")
+                (currentWorktreePath ? basename(currentWorktreePath) : "")
               }
               options={worktreeOptions.map((o) => o.label)}
               onChange={(label) => {
@@ -332,12 +348,13 @@ export function GitGraphToolbar({
                 <div className="absolute right-0 z-30 mt-1 w-52 rounded-md border border-border-strong bg-bg-elevated p-1 shadow-lg">
                   <button
                     type="button"
-                    aria-label={labels.switchBranch}
+                    aria-label={switchBranchLabel}
+                    disabled={branches.length === 0}
                     onClick={() => {
                       setOverflowOpen(false);
                       setBranchMenuOpen(true);
                     }}
-                    className="flex w-full items-center rounded px-2 py-1.5 text-left font-mono text-[11px] text-fg-subtle hover:bg-bg-inset hover:text-fg"
+                    className="flex w-full items-center rounded px-2 py-1.5 text-left font-mono text-[11px] text-fg-subtle hover:bg-bg-inset hover:text-fg disabled:opacity-50"
                   >
                     {labels.head}: {currentBranch}
                   </button>
@@ -380,16 +397,7 @@ export function GitGraphToolbar({
                 </div>
               </>
             )}
-            {branchMenuOpen && (
-              <BranchMenu
-                locals={locals}
-                remotes={remotes}
-                currentBranch={currentBranch}
-                onCheckoutBranch={onCheckoutBranch}
-                onCheckoutRemoteBranch={onCheckoutRemoteBranch}
-                onClose={() => setBranchMenuOpen(false)}
-              />
-            )}
+            {branchMenu}
           </div>
         ) : (
           <>
@@ -449,24 +457,16 @@ export function GitGraphToolbar({
               <Tooltip label={labels.switchBranch}>
                 <button
                   type="button"
-                  aria-label={labels.switchBranch}
+                  aria-label={switchBranchLabel}
                   aria-expanded={branchMenuOpen}
+                  disabled={branches.length === 0}
                   onClick={() => setBranchMenuOpen((v) => !v)}
-                  className="ml-1 whitespace-nowrap rounded px-1 py-0.5 font-mono text-[11px] text-fg-subtle hover:bg-bg-elevated hover:text-fg"
+                  className="ml-1 whitespace-nowrap rounded px-1 py-0.5 font-mono text-[11px] text-fg-subtle hover:bg-bg-elevated hover:text-fg disabled:opacity-50"
                 >
                   {labels.head}: {currentBranch}
                 </button>
               </Tooltip>
-              {branchMenuOpen && (
-                <BranchMenu
-                  locals={locals}
-                  remotes={remotes}
-                  currentBranch={currentBranch}
-                  onCheckoutBranch={onCheckoutBranch}
-                  onCheckoutRemoteBranch={onCheckoutRemoteBranch}
-                  onClose={() => setBranchMenuOpen(false)}
-                />
-              )}
+              {branchMenu}
             </div>
           </>
         )}
@@ -542,6 +542,9 @@ interface BranchMenuProps {
   locals: Branch[];
   remotes: Branch[];
   currentBranch: string;
+  /** Branch name -> basename of the other worktree that has it checked out.
+   * git refuses to check these out here, so their entries are disabled. */
+  branchesInOtherWorktrees: Map<string, string>;
   onCheckoutBranch: (name: string) => void;
   onCheckoutRemoteBranch: (name: string) => void;
   onClose: () => void;
@@ -553,6 +556,7 @@ function BranchMenu({
   locals,
   remotes,
   currentBranch,
+  branchesInOtherWorktrees,
   onCheckoutBranch,
   onCheckoutRemoteBranch,
   onClose,
@@ -564,23 +568,33 @@ function BranchMenu({
         role="menu"
         className="absolute right-0 z-30 mt-1 max-h-72 w-56 overflow-y-auto rounded-md border border-border-strong bg-bg-elevated p-1 shadow-lg"
       >
-        {locals.map((b) => (
-          <button
-            key={b.name}
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              onClose();
-              if (b.name !== currentBranch) {
-                onCheckoutBranch(b.name);
-              }
-            }}
-            className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs text-fg-muted hover:bg-bg-inset hover:text-fg"
-          >
-            <span className="truncate font-mono">{b.name}</span>
-            {b.name === currentBranch && <Check className="h-3.5 w-3.5 shrink-0 text-accent" />}
-          </button>
-        ))}
+        {locals.map((b) => {
+          const otherWorktree =
+            b.name === currentBranch ? undefined : branchesInOtherWorktrees.get(b.name);
+          return (
+            <button
+              key={b.name}
+              type="button"
+              role="menuitem"
+              disabled={otherWorktree !== undefined}
+              onClick={() => {
+                onClose();
+                if (b.name !== currentBranch) {
+                  onCheckoutBranch(b.name);
+                }
+              }}
+              className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs text-fg-muted hover:bg-bg-inset hover:text-fg disabled:opacity-50 disabled:hover:bg-transparent"
+            >
+              <span className="truncate font-mono">{b.name}</span>
+              {b.name === currentBranch && (
+                <Check className="h-3.5 w-3.5 shrink-0 text-accent" />
+              )}
+              {otherWorktree !== undefined && (
+                <span className="shrink-0 text-[10px] text-fg-subtle">{otherWorktree}</span>
+              )}
+            </button>
+          );
+        })}
         {remotes.length > 0 && (
           <>
             <div className="my-1 border-t border-border" />

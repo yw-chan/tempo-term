@@ -172,6 +172,24 @@ describe("GitGraphTabContent worktree selector wiring", () => {
     await waitFor(() => expect(useWorkspaceStore.getState().rootPath).toBe("/repo-dev"));
   });
 
+  it("refetches the worktree list whenever the graph reloads, so labels track checkouts", async () => {
+    vi.mocked(gitGraphLog).mockResolvedValue(commitList(["aaa1111"], false));
+    vi.mocked(gitWorktreeList).mockResolvedValue([
+      { path: "/repo", branch: "master" },
+      { path: "/repo-dev", branch: "feature" },
+    ]);
+
+    render(<GitGraphTabContent />);
+    await screen.findAllByLabelText("Worktree");
+    const callsBefore = vi.mocked(gitWorktreeList).mock.calls.length;
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() =>
+      expect(vi.mocked(gitWorktreeList).mock.calls.length).toBeGreaterThan(callsBefore),
+    );
+  });
+
   it("hides the selector when listing worktrees fails", async () => {
     vi.mocked(gitGraphLog).mockResolvedValue(commitList(["aaa1111"], false));
     vi.mocked(gitWorktreeList).mockRejectedValue(new Error("not a repo"));
