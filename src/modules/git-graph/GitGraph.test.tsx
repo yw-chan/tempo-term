@@ -219,6 +219,52 @@ describe("GitGraph auto-scroll", () => {
 
     expect(scrollContainer.scrollTop).toBe(500);
   });
+
+  it("still scrolls once the active commit's layout becomes available after a hash change with no layout yet", () => {
+    const missing = commit("x", [], "msg x");
+    const { rerender } = render(
+      <GitGraph
+        commits={commits}
+        selection={{ mode: "single", commit: commits[0] }}
+        onSelectCommit={vi.fn()}
+        labels={LABELS}
+      />,
+    );
+    const scrollContainer = document.querySelector("div.flex-1.overflow-auto") as HTMLElement;
+    Object.defineProperty(scrollContainer, "clientHeight", { value: 40, configurable: true });
+    scrollContainer.scrollTop = 0;
+
+    // Selection points at a commit whose layout doesn't exist yet (e.g. its
+    // page is still loading) — the effect must bail without "consuming"
+    // this hash change.
+    rerender(
+      <GitGraph
+        commits={commits}
+        selection={{ mode: "single", commit: missing }}
+        onSelectCommit={vi.fn()}
+        labels={LABELS}
+      />,
+    );
+    expect(scrollContainer.scrollTop).toBe(0);
+
+    // The commit's page finishes loading: it's now in commits/layouts, and
+    // the selection is unchanged. The scroll must still happen here, not be
+    // silently skipped because the earlier render already "used up" the
+    // hash change.
+    const loaded = [...commits, missing];
+    rerender(
+      <GitGraph
+        commits={loaded}
+        selection={{ mode: "single", commit: missing }}
+        onSelectCommit={vi.fn()}
+        labels={LABELS}
+      />,
+    );
+
+    // "x" is row index 3: y = 20 + 3*36 = 128, bottom edge 146, beyond the
+    // 40px-tall window starting at 0 => scrollTop becomes 146 - 40 = 106.
+    expect(scrollContainer.scrollTop).toBe(106);
+  });
 });
 
 describe("GitGraph compare-mode highlighting", () => {

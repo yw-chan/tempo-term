@@ -149,12 +149,17 @@ export function GitGraph({
     if (activeHash === prevActiveHashRef.current) {
       return;
     }
-    prevActiveHashRef.current = activeHash;
 
     const layout = layouts[activeHash];
     if (!layout) {
+      // Layout for this hash isn't ready yet (e.g. its page is still
+      // loading) — leave prevActiveHashRef alone so a later render, once
+      // the layout does exist, still recognizes this as an unhandled
+      // hash change instead of skipping it.
       return;
     }
+    prevActiveHashRef.current = activeHash;
+
     const container = scrollRef.current;
     const rowTop = layout.y - ROW_HEIGHT / 2;
     const rowBottom = layout.y + ROW_HEIGHT / 2;
