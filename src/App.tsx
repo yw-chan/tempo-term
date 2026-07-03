@@ -128,6 +128,16 @@ function App() {
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [pendingCloseAction, setPendingCloseAction] = useState<(() => void) | null>(null);
 
+  // Cmd/Ctrl+P with no open folder (or a remote one) sets fileFinderOpen with
+  // nowhere to render it — left alone, that flag would survive until the user
+  // later opens a searchable folder and the palette would pop up unprompted.
+  // Clear it as soon as it stops having anywhere to render.
+  useEffect(() => {
+    if (fileFinderOpen && !canSearchRoot(rootPath)) {
+      setFileFinderOpen(false);
+    }
+  }, [fileFinderOpen, rootPath, setFileFinderOpen]);
+
   // Close the focused pane, or the whole tab when it holds a single pane. Shared
   // by the ⌘W key handler and the "Close Tab" menu item (both must behave the
   // same, and a dirty editor routes through the unsaved-changes confirmation).

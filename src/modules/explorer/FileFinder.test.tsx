@@ -232,4 +232,23 @@ describe("FileFinder result rows", () => {
     await waitFor(() => screen.getByText("util.ts"));
     expect(screen.getByText("src/modules")).toBeInTheDocument();
   });
+
+  it("shows a loading state instead of 'no matches' while the file list is still loading", async () => {
+    const { fsListFiles } = await import("./lib/fsBridge");
+    let resolveList: (list: string[]) => void = () => {};
+    vi.mocked(fsListFiles).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveList = resolve;
+      }),
+    );
+
+    render(<FileFinder root="/p" onClose={() => {}} />);
+
+    expect(screen.getByText("loading")).toBeInTheDocument();
+    expect(screen.queryByText("noResults")).toBeNull();
+
+    resolveList(["/p/main.ts"]);
+    await waitFor(() => screen.getByText("main.ts"));
+    expect(screen.queryByText("loading")).toBeNull();
+  });
 });

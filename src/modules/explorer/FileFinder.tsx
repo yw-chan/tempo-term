@@ -27,6 +27,7 @@ export function FileFinder({ root, onClose }: FileFinderProps) {
   const { t: tCommon } = useTranslation("common");
   const [query, setQuery] = useState("");
   const [files, setFiles] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
   const [atCapacity, setAtCapacity] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -42,13 +43,19 @@ export function FileFinder({ root, onClose }: FileFinderProps) {
   useEffect(() => {
     inputRef.current?.focus();
     let cancelled = false;
+    setLoading(true);
     fsListFiles(root, 20000)
       .then((list) => {
         if (!cancelled) {
           setFiles(list);
         }
       })
-      .catch(() => setFiles([]));
+      .catch(() => setFiles([]))
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -129,7 +136,7 @@ export function FileFinder({ root, onClose }: FileFinderProps) {
         }
       }}
     >
-      <div className="h-fit w-[70%] max-w-2xl overflow-hidden rounded-lg border border-border-strong bg-bg-elevated shadow-2xl">
+      <div className="h-fit w-[90%] max-w-2xl overflow-hidden rounded-lg border border-border-strong bg-bg-elevated shadow-2xl md:w-[70%]">
         <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
           <Search size={16} className="shrink-0 text-fg-subtle" />
           <input
@@ -143,7 +150,9 @@ export function FileFinder({ root, onClose }: FileFinderProps) {
           />
         </div>
         <ul className="max-h-96 overflow-y-auto py-1">
-          {results.length === 0 ? (
+          {loading ? (
+            <li className="px-3 py-2 text-xs text-fg-subtle">{t("loading")}</li>
+          ) : results.length === 0 ? (
             <li className="px-3 py-2 text-xs text-fg-subtle">{t("noResults")}</li>
           ) : (
             <>
@@ -169,7 +178,13 @@ export function FileFinder({ root, onClose }: FileFinderProps) {
                       // mousemove, not mouseenter: keyboard-driven scrolling
                       // can slide a row under a stationary cursor, and a plain
                       // enter there would steal the selection from the keyboard.
-                      onMouseMove={() => setActiveIndex(index)}
+                      // Guarded so merely wiggling the cursor over an already-
+                      // active row doesn't re-fire a state update per pixel.
+                      onMouseMove={() => {
+                        if (activeIndex !== index) {
+                          setActiveIndex(index);
+                        }
+                      }}
                       aria-selected={active}
                       className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-sm ${
                         active ? "bg-bg text-fg" : "text-fg-muted hover:bg-bg hover:text-fg"
