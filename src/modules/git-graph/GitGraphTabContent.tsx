@@ -35,7 +35,7 @@ import { filterCommits } from "./lib/filterCommits";
 import { buildCommitMenu, buildRefMenu } from "./lib/contextMenuItems";
 import { splitRemoteRef } from "./lib/remoteRef";
 import { withMinDuration } from "@/lib/withMinDuration";
-import type { Branch, CommitNode, CommitRef, CommitOrder, GraphOptions } from "./types";
+import type { Branch, CommitNode, CommitRef, CommitOrder, GraphOptions, GraphSelection } from "./types";
 
 const PAGE_SIZE = 200;
 // Local git reloads finish almost instantly; keep the busy spinner up at least
@@ -76,7 +76,7 @@ export function GitGraphTabContent() {
   const [worktrees, setWorktrees] = useState<WorktreeItem[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [limit, setLimit] = useState(PAGE_SIZE);
-  const [selected, setSelected] = useState<CommitNode | null>(null);
+  const [selection, setSelection] = useState<GraphSelection | null>(null);
   const [detailsHeight, setDetailsHeight] = useState<number>(() => {
     const v = Number(localStorage.getItem("tempoterm-gitgraph-details-height"));
     return Number.isFinite(v) && v > 0 ? v : 280;
@@ -234,6 +234,32 @@ export function GitGraphTabContent() {
     void reload(repo, next, options);
   }, [repo, limit, reload, options.branch, options.includeRemotes, options.includeTags, options.includeStashes, options.order]);
 
+  // Plain click/arrow-nav selects one commit. Shift+click while a commit is
+  // already selected (single or as the "to" side of an existing compare)
+  // pairs it with the new one, ordered older ("from") to newer ("to") by
+  // position in `commits` — the list is already newest-first, so no extra
+  // git call is needed to know which side is which.
+  const handleSelectCommit = useCallback(
+    (commit: CommitNode, { shiftKey }: { shiftKey: boolean }) => {
+      if (!shiftKey) {
+        setSelection({ mode: "single", commit });
+        return;
+      }
+      setSelection((prev) => {
+        const anchor =
+          prev?.mode === "single" ? prev.commit : prev?.mode === "compare" ? prev.to : null;
+        if (!anchor || anchor.hash === commit.hash) {
+          return { mode: "single", commit };
+        }
+        const anchorIndex = commits.findIndex((c) => c.hash === anchor.hash);
+        const commitIndex = commits.findIndex((c) => c.hash === commit.hash);
+        const [from, to] = anchorIndex > commitIndex ? [anchor, commit] : [commit, anchor];
+        return { mode: "compare", from, to };
+      });
+    },
+    [commits],
+  );
+
   // Consume a pending "select this commit" request from the sidebar's history
   // list. Subscribes to the store's hash (not a one-shot getState() read) so
   // this fires for every new request, including one that arrives while the
@@ -263,7 +289,7 @@ export function GitGraphTabContent() {
       commitHash.startsWith(pendingHash) || pendingHash.startsWith(commitHash);
     const visibleMatch = visibleCommits.find((c) => hashMatches(c.hash));
     if (visibleMatch) {
-      setSelected(visibleMatch);
+      setSelection({ mode: "single", commit: visibleMatch });
       usePendingGraphSelectionStore.getState().consume();
       pendingSelectionAttempts.current = 0;
       return;
@@ -582,8 +608,8 @@ export function GitGraphTabContent() {
         <div className="min-h-0 flex-1">
           <GitGraph
             commits={visibleCommits}
-            selectedCommit={selected}
-            onSelectCommit={setSelected}
+            selection={selection}
+            onSelectCommit={handleSelectCommit}
             onCommitContextMenu={(commit, x, y) =>
               setMenu({ type: "commit", commit, x, y })
             }
@@ -593,7 +619,7 @@ export function GitGraphTabContent() {
             labels={labels}
           />
         </div>
-        {selected && repo && (
+        {selection && repo && (
           <>
             <Resizer
               orientation="horizontal"
@@ -605,8 +631,9 @@ export function GitGraphTabContent() {
             <div style={{ height: `${detailsHeight}px` }} className="shrink-0">
               <CommitDetailsPanel
                 repo={repo}
-                commit={selected}
-                onClose={() => setSelected(null)}
+                commit={selection.mode === "single" ? selection.commit : selection.to}
+                selection={selection}
+                onClose={() => setSelection(null)}
                 labels={detailsLabels}
               />
             </div>
