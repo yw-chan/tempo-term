@@ -21,7 +21,7 @@ vi.mock("./lib/gitGraphBridge", () => ({
   gitWorktreeList: vi.fn().mockResolvedValue([]),
 }));
 
-import { gitGraphLog, gitWorktreeList } from "./lib/gitGraphBridge";
+import { gitCommitDetails, gitGraphLog, gitWorktreeList } from "./lib/gitGraphBridge";
 
 function commitList(hashes: string[], hasMore: boolean) {
   return {
@@ -289,5 +289,26 @@ describe("GitGraphTabContent compare mode", () => {
 
     await waitFor(() => expect(screen.getAllByText("aaa1111").length).toBeGreaterThan(0));
     expect(screen.queryByText("bbb2222 .. aaa1111")).not.toBeInTheDocument();
+  });
+
+  it("does not refetch commit details when clicking the already-selected commit again", async () => {
+    vi.mocked(gitGraphLog).mockImplementation(async () =>
+      commitList(["aaa1111", "bbb2222"], false),
+    );
+
+    render(<GitGraphTabContent />);
+    await waitFor(() => screen.getByText("msg aaa1111"));
+
+    const rowA = screen.getByText("msg aaa1111").closest("div[class*='absolute']")!;
+
+    fireEvent.click(rowA);
+    await waitFor(() => expect(gitCommitDetails).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(rowA);
+
+    // React bails out of re-rendering when a functional setState update
+    // returns the previous state by reference, so no new effect run (and
+    // no second fetch) is even scheduled — safe to assert synchronously.
+    expect(gitCommitDetails).toHaveBeenCalledTimes(1);
   });
 });

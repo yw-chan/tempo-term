@@ -135,6 +135,28 @@ export function GitGraph({
     }
   }
 
+  // Keep the active commit in view when keyboard navigation moves it off
+  // the visible edge of the (virtualized, manually-scrolled) container.
+  useEffect(() => {
+    if (!activeHash || !scrollRef.current) {
+      return;
+    }
+    const layout = layouts[activeHash];
+    if (!layout) {
+      return;
+    }
+    const container = scrollRef.current;
+    const rowTop = layout.y - ROW_HEIGHT / 2;
+    const rowBottom = layout.y + ROW_HEIGHT / 2;
+    const { scrollTop, clientHeight } = container;
+
+    if (rowTop < scrollTop) {
+      container.scrollTop = rowTop;
+    } else if (rowBottom > scrollTop + clientHeight) {
+      container.scrollTop = rowBottom - clientHeight;
+    }
+  }, [activeHash, layouts]);
+
   const svgHeight = commits.length * ROW_HEIGHT + PADDING_TOP * 2 - 20;
   const visibleStart = Math.max(
     0,

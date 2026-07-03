@@ -132,6 +132,66 @@ describe("GitGraph keyboard navigation", () => {
   });
 });
 
+describe("GitGraph auto-scroll", () => {
+  const commits = [
+    commit("c", ["b"], "msg c"),
+    commit("b", ["a"], "msg b"),
+    commit("a", [], "msg a"),
+  ];
+
+  it("scrolls down so the newly active row's bottom edge is visible", () => {
+    const { rerender } = render(
+      <GitGraph
+        commits={commits}
+        selection={{ mode: "single", commit: commits[0] }}
+        onSelectCommit={vi.fn()}
+        labels={LABELS}
+      />,
+    );
+    const scrollContainer = container("msg c");
+    Object.defineProperty(scrollContainer, "clientHeight", { value: 40, configurable: true });
+    scrollContainer.scrollTop = 0;
+
+    rerender(
+      <GitGraph
+        commits={commits}
+        selection={{ mode: "single", commit: commits[2] }}
+        onSelectCommit={vi.fn()}
+        labels={LABELS}
+      />,
+    );
+
+    // commits[2] ("a") is row index 2: y = 20 + 2*36 = 92, half-height 18 =>
+    // bottom edge at 110, below the 40px-tall visible window starting at 0.
+    expect(scrollContainer.scrollTop).toBe(70);
+  });
+
+  it("does not scroll when the newly active row is already fully visible", () => {
+    const { rerender } = render(
+      <GitGraph
+        commits={commits}
+        selection={{ mode: "single", commit: commits[0] }}
+        onSelectCommit={vi.fn()}
+        labels={LABELS}
+      />,
+    );
+    const scrollContainer = container("msg c");
+    Object.defineProperty(scrollContainer, "clientHeight", { value: 200, configurable: true });
+    scrollContainer.scrollTop = 0;
+
+    rerender(
+      <GitGraph
+        commits={commits}
+        selection={{ mode: "single", commit: commits[1] }}
+        onSelectCommit={vi.fn()}
+        labels={LABELS}
+      />,
+    );
+
+    expect(scrollContainer.scrollTop).toBe(0);
+  });
+});
+
 describe("GitGraph compare-mode highlighting", () => {
   it("marks both endpoints as selected", () => {
     const commits = [commit("c", ["b"], "msg c"), commit("b", ["a"], "msg b")];

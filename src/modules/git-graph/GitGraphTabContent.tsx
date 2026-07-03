@@ -242,18 +242,29 @@ export function GitGraphTabContent() {
   const handleSelectCommit = useCallback(
     (commit: CommitNode, { shiftKey }: { shiftKey: boolean }) => {
       if (!shiftKey) {
-        setSelection({ mode: "single", commit });
+        setSelection((prev) => {
+          if (prev?.mode === "single" && prev.commit.hash === commit.hash) {
+            return prev;
+          }
+          return { mode: "single", commit };
+        });
         return;
       }
       setSelection((prev) => {
         const anchor =
           prev?.mode === "single" ? prev.commit : prev?.mode === "compare" ? prev.to : null;
         if (!anchor || anchor.hash === commit.hash) {
+          if (prev?.mode === "single" && prev.commit.hash === commit.hash) {
+            return prev;
+          }
           return { mode: "single", commit };
         }
         const anchorIndex = commits.findIndex((c) => c.hash === anchor.hash);
         const commitIndex = commits.findIndex((c) => c.hash === commit.hash);
         const [from, to] = anchorIndex > commitIndex ? [anchor, commit] : [commit, anchor];
+        if (prev?.mode === "compare" && prev.from.hash === from.hash && prev.to.hash === to.hash) {
+          return prev;
+        }
         return { mode: "compare", from, to };
       });
     },
