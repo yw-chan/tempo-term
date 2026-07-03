@@ -295,6 +295,52 @@ pub fn worktree_info(path: &str) -> Result<WorktreeInfo, String> {
     })
 }
 
+/// One entry of `git worktree list`: the worktree's absolute path and its
+/// checked-out branch (None on a detached HEAD). Bare entries are skipped.
+#[derive(Debug, Clone, Serialize)]
+pub struct WorktreeListItem {
+    pub path: String,
+    pub branch: Option<String>,
+}
+
+/// Lists every worktree of the repository via `git worktree list --porcelain`:
+/// blank-line-separated blocks of `worktree <path>`, `HEAD <sha>`, then
+/// `branch refs/heads/<name>` or `detached`. A `bare` block has no working
+/// tree to switch to and a `prunable` one no longer exists on disk, so both
+/// are dropped — offering either as a switch target would strand the app's
+/// workspace root somewhere unusable.
+pub fn worktree_list(repo_path: &str) -> Result<Vec<WorktreeListItem>, String> {
+    let stdout = run_git(repo_path, &["worktree", "list", "--porcelain"])?;
+    let mut items = Vec::new();
+    let mut path: Option<String> = None;
+    let mut branch: Option<String> = None;
+    let mut skip = false;
+
+    for line in stdout.lines().chain(std::iter::once("")) {
+        if line.is_empty() {
+            if let Some(p) = path.take() {
+                if !skip {
+                    items.push(WorktreeListItem {
+                        path: p,
+                        branch: branch.take(),
+                    });
+                }
+            }
+            branch = None;
+            skip = false;
+        } else if let Some(rest) = line.strip_prefix("worktree ") {
+            path = Some(rest.to_string());
+        } else if let Some(rest) = line.strip_prefix("branch ") {
+            branch = Some(rest.strip_prefix("refs/heads/").unwrap_or(rest).to_string());
+        } else if line == "bare" || line == "prunable" || line.starts_with("prunable ") {
+            skip = true;
+        }
+        // `HEAD <sha>` and `detached` lines are ignored: branch simply stays
+        // None for a detached worktree.
+    }
+    Ok(items)
+}
+
 pub fn stage(repo_path: &str, path: &str) -> Result<(), String> {
     let repo = Repository::open(repo_path).map_err(|e| e.message().to_string())?;
     let mut index = repo.index().map_err(|e| e.message().to_string())?;
@@ -391,6 +437,15 @@ pub async fn git_worktree_info(path: String) -> Result<WorktreeInfo, String> {
 }
 
 #[tauri::command]
+pub async fn git_worktree_list(path: String) -> Result<Vec<WorktreeListItem>, String> {
+    // Spawns a git subprocess; run it off the main thread so a slow repo never
+    // freezes the UI (same rationale as git_worktree_info above).
+    tauri::async_runtime::spawn_blocking(move || worktree_list(&path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub fn git_stage(repo_path: String, path: String) -> Result<(), String> {
     stage(&repo_path, &path)
 }
@@ -449,6 +504,49 @@ pub fn diff(repo_path: &str, staged: bool) -> Result<String, String> {
     } else {
         run_git(repo_path, &["diff"])
     }
+}
+
+/// Content of `path` at `rev`, where rev is limited to "HEAD" (last commit)
+/// or ":" (the index) — the only two versions the diff tab compares against.
+/// A file missing at that rev is an empty document, not an error, so new
+/// files diff as all-added.
+pub fn file_at_rev(repo_path: &str, rev: &str, path: &str) -> Result<String, String> {
+    if rev != "HEAD" && rev != ":" {
+        return Err(format!("unsupported rev: {rev}"));
+    }
+    ensure_not_flag(path)?;
+    // "HEAD:path" names the committed version; ":path" (single colon) names
+    // the index version — the colon separator is already part of that rev.
+    let spec = if rev == ":" {
+        format!(":{path}")
+    } else {
+        format!("{rev}:{path}")
+    };
+    match run_git(repo_path, &["show", &spec]) {
+        Ok(content) => Ok(content),
+        // `git show` wording varies by rev kind and version; match the known
+        // "no such file at that rev" messages so a genuine failure (corrupt
+        // object, bad repo) still surfaces instead of reading as empty.
+        // "invalid object name 'HEAD'" is the unborn-HEAD case (fresh repo,
+        // nothing committed yet): every file is new, so HEAD-side is empty.
+        Err(err)
+            if err.contains("does not exist")
+                || err.contains("exists on disk, but not in")
+                || err.contains("is in the index, but not at stage")
+                || err.contains("invalid object name 'HEAD'") =>
+        {
+            Ok(String::new())
+        }
+        Err(err) => Err(err),
+    }
+}
+
+/// Discard unstaged changes to one tracked file (`git restore`). The pathspec
+/// is wrapped in `:(literal)` so git magic like `:/` or `:(glob)` in a crafted
+/// path cannot widen the restore beyond the named file.
+pub fn restore_file(repo_path: &str, path: &str) -> Result<(), String> {
+    ensure_not_flag(path)?;
+    run_git(repo_path, &["restore", "--", &format!(":(literal){path}")]).map(|_| ())
 }
 
 /// Push the current branch to its remote.
@@ -900,6 +998,16 @@ pub fn git_diff(repo_path: String, staged: bool) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub fn git_file_at_rev(repo_path: String, rev: String, path: String) -> Result<String, String> {
+    file_at_rev(&repo_path, &rev, &path)
+}
+
+#[tauri::command]
+pub fn git_restore_file(repo_path: String, path: String) -> Result<(), String> {
+    restore_file(&repo_path, &path)
+}
+
+#[tauri::command]
 pub fn git_push(repo_path: String) -> Result<String, String> {
     push(&repo_path)
 }
@@ -1082,6 +1190,103 @@ mod tests {
     fn worktree_info_errors_outside_a_repo() {
         let dir = temp_repo_dir("wt-norepo");
         assert!(worktree_info(&dir.to_string_lossy()).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn worktree_list_reports_main_and_linked_worktrees() {
+        let root = temp_repo_dir("wtl-linked");
+        let main = root.join("main");
+        std::fs::create_dir_all(&main).unwrap();
+        let main_path = main.to_string_lossy().to_string();
+        run_git(&main_path, &["init", "-b", "main"]).unwrap();
+        run_git(&main_path, &["config", "user.email", "t@t.dev"]).unwrap();
+        run_git(&main_path, &["config", "user.name", "Tester"]).unwrap();
+        std::fs::write(main.join("a.txt"), "hi").unwrap();
+        run_git(&main_path, &["add", "."]).unwrap();
+        run_git(&main_path, &["commit", "-m", "init"]).unwrap();
+        let wt = root.join("wt");
+        let wt_path = wt.to_string_lossy().to_string();
+        run_git(&main_path, &["worktree", "add", &wt_path, "-b", "feature"]).unwrap();
+
+        let items = worktree_list(&main_path).unwrap();
+        assert_eq!(items.len(), 2);
+        // git prints canonicalized absolute paths (e.g. /private/var vs /var on
+        // macOS temp dirs), so assert on the unambiguous path suffix.
+        assert!(items[0].path.ends_with("/main"));
+        assert_eq!(items[0].branch.as_deref(), Some("main"));
+        assert!(items[1].path.ends_with("/wt"));
+        assert_eq!(items[1].branch.as_deref(), Some("feature"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn worktree_list_reports_detached_worktree_without_branch() {
+        let root = temp_repo_dir("wtl-detached");
+        let main = root.join("main");
+        std::fs::create_dir_all(&main).unwrap();
+        let main_path = main.to_string_lossy().to_string();
+        run_git(&main_path, &["init", "-b", "main"]).unwrap();
+        run_git(&main_path, &["config", "user.email", "t@t.dev"]).unwrap();
+        run_git(&main_path, &["config", "user.name", "Tester"]).unwrap();
+        std::fs::write(main.join("a.txt"), "hi").unwrap();
+        run_git(&main_path, &["add", "."]).unwrap();
+        run_git(&main_path, &["commit", "-m", "init"]).unwrap();
+        let wt = root.join("wt");
+        let wt_path = wt.to_string_lossy().to_string();
+        run_git(&main_path, &["worktree", "add", "--detach", &wt_path]).unwrap();
+
+        let items = worktree_list(&main_path).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[1].branch, None);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn worktree_list_skips_prunable_worktrees_whose_directory_is_gone() {
+        let root = temp_repo_dir("wtl-prunable");
+        let main = root.join("main");
+        std::fs::create_dir_all(&main).unwrap();
+        let main_path = main.to_string_lossy().to_string();
+        run_git(&main_path, &["init", "-b", "main"]).unwrap();
+        run_git(&main_path, &["config", "user.email", "t@t.dev"]).unwrap();
+        run_git(&main_path, &["config", "user.name", "Tester"]).unwrap();
+        std::fs::write(main.join("a.txt"), "hi").unwrap();
+        run_git(&main_path, &["add", "."]).unwrap();
+        run_git(&main_path, &["commit", "-m", "init"]).unwrap();
+        let wt = root.join("wt");
+        let wt_path = wt.to_string_lossy().to_string();
+        run_git(&main_path, &["worktree", "add", &wt_path, "-b", "feature"]).unwrap();
+
+        // Delete the worktree directory without `git worktree prune` — git
+        // still reports the entry, marked `prunable`, and switching the app
+        // to a nonexistent directory would strand the workspace root there.
+        std::fs::remove_dir_all(&wt).unwrap();
+
+        let items = worktree_list(&main_path).unwrap();
+        assert_eq!(items.len(), 1);
+        assert!(items[0].path.ends_with("/main"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn worktree_list_returns_single_item_for_a_plain_repo() {
+        let dir = temp_repo_dir("wtl-single");
+        let path = dir.to_string_lossy().to_string();
+        run_git(&path, &["init", "-b", "main"]).unwrap();
+        run_git(&path, &["config", "user.email", "t@t.dev"]).unwrap();
+        run_git(&path, &["config", "user.name", "Tester"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "hi").unwrap();
+        run_git(&path, &["add", "."]).unwrap();
+        run_git(&path, &["commit", "-m", "init"]).unwrap();
+
+        let items = worktree_list(&path).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].branch.as_deref(), Some("main"));
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1376,6 +1581,81 @@ mod tests {
         let staged_diff = diff(&path, true).unwrap();
         assert!(staged_diff.contains("a.txt"));
         assert!(staged_diff.contains("+hello world"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_at_rev_reads_head_and_index_versions() {
+        let dir = temp_repo_dir("file_at_rev");
+        let path = dir.to_string_lossy().to_string();
+        run_git(&path, &["init"]).unwrap();
+        run_git(&path, &["config", "user.name", "Test"]).unwrap();
+        run_git(&path, &["config", "user.email", "test@example.com"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "committed\n").unwrap();
+        run_git(&path, &["add", "a.txt"]).unwrap();
+        run_git(&path, &["commit", "-m", "c1"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "staged\n").unwrap();
+        run_git(&path, &["add", "a.txt"]).unwrap();
+
+        assert_eq!(file_at_rev(&path, "HEAD", "a.txt").unwrap(), "committed\n");
+        assert_eq!(file_at_rev(&path, ":", "a.txt").unwrap(), "staged\n");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_at_rev_missing_file_is_empty_and_bad_args_rejected() {
+        let dir = temp_repo_dir("file_at_rev_missing");
+        let path = dir.to_string_lossy().to_string();
+        run_git(&path, &["init"]).unwrap();
+        run_git(&path, &["config", "user.name", "Test"]).unwrap();
+        run_git(&path, &["config", "user.email", "test@example.com"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "x\n").unwrap();
+        run_git(&path, &["add", "a.txt"]).unwrap();
+        run_git(&path, &["commit", "-m", "c1"]).unwrap();
+
+        assert_eq!(file_at_rev(&path, "HEAD", "nope.txt").unwrap(), "");
+        assert_eq!(file_at_rev(&path, ":", "nope.txt").unwrap(), "");
+        assert!(file_at_rev(&path, "HEAD~1", "a.txt").is_err());
+        assert!(file_at_rev(&path, "HEAD", "--evil").is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_at_rev_unborn_head_reads_as_empty() {
+        let dir = temp_repo_dir("file_at_rev_unborn");
+        let path = dir.to_string_lossy().to_string();
+        run_git(&path, &["init"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "staged\n").unwrap();
+        run_git(&path, &["add", "a.txt"]).unwrap();
+
+        // No commits yet: HEAD is unborn, so the HEAD side is an empty doc
+        // (all-added diff), not an error.
+        assert_eq!(file_at_rev(&path, "HEAD", "a.txt").unwrap(), "");
+        assert_eq!(file_at_rev(&path, ":", "a.txt").unwrap(), "staged\n");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn restore_file_reverts_unstaged_change() {
+        let dir = temp_repo_dir("restore_file");
+        let path = dir.to_string_lossy().to_string();
+        run_git(&path, &["init"]).unwrap();
+        run_git(&path, &["config", "user.name", "Test"]).unwrap();
+        run_git(&path, &["config", "user.email", "test@example.com"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "original\n").unwrap();
+        run_git(&path, &["add", "a.txt"]).unwrap();
+        run_git(&path, &["commit", "-m", "c1"]).unwrap();
+        std::fs::write(dir.join("a.txt"), "dirty\n").unwrap();
+
+        restore_file(&path, "a.txt").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("a.txt")).unwrap(),
+            "original\n"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

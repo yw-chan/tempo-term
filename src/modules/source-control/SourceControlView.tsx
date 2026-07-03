@@ -1,23 +1,37 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  ChevronDown,
+  ChevronRight,
+  Clipboard,
+  ClipboardList,
+  File,
   Folder,
+  FolderOpen,
   FolderTree,
   GitBranch,
+  GitCompare,
   List,
   Loader2,
   Minus,
   Plus,
   RefreshCw,
   Sparkles,
+  SquarePlus,
+  Undo2,
   UploadCloud,
 } from "lucide-react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { InfoDialog } from "@/components/InfoDialog";
+import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { fsReveal } from "@/modules/explorer/lib/fsBridge";
 import {
   gitCommit,
   gitDiff,
   gitLog,
   gitPush,
   gitResolveRepo,
+  gitRestoreFile,
   gitStage,
   gitStatus,
   gitUnstage,
@@ -26,10 +40,13 @@ import {
   type GitStatus,
 } from "./lib/gitBridge";
 import { Tooltip } from "@/components/Tooltip";
-import { groupByFolder } from "./lib/groupByFolder";
+import { buildFileTree, collectDescendantFiles, type TreeNode } from "@/lib/fileTree";
+import { useCollapsedPaths } from "@/lib/useCollapsedPaths";
+import { usePendingGraphSelectionStore } from "@/modules/git-graph/lib/pendingGraphSelectionStore";
 import { generateCommitMessage } from "./lib/aiCommit";
 import { withMinDuration } from "@/lib/withMinDuration";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { useTabsStore } from "@/stores/tabsStore";
 import { useChatStore } from "@/modules/ai/store/chatStore";
 
 type ViewMode = "flat" | "folder";
@@ -49,18 +66,106 @@ const STATUS_COLOR: Record<string, string> = {
 function StatusRow({
   file,
   displayPath,
+  repoPath,
   actionIcon: ActionIcon,
   actionLabel,
   onAction,
+  onOpen,
+  onRequestDiscard,
+  indent = 0,
 }: {
   file: FileStatus;
   displayPath?: string;
+  repoPath: string;
   actionIcon: typeof Plus;
   actionLabel: string;
   onAction: (path: string) => void;
+  /** Left-click on the row: open this file's diff tab. */
+  onOpen: (path: string) => void;
+  /** Present on tracked unstaged rows only: ask to discard this file. */
+  onRequestDiscard?: (path: string) => void;
+  /** Tree depth for indentation; 0 (default) matches flat mode's spacing. */
+  indent?: number;
 }) {
+  const { t } = useTranslation("sourceControl");
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const discardable = onRequestDiscard && file.status !== "?";
+  const absPath = `${repoPath}/${file.path}`;
+
+  const menuItems: ContextMenuItem[] = [
+    {
+      id: "openFile",
+      label: t("menuOpenFile"),
+      icon: File,
+      group: 0,
+      onSelect: () => useTabsStore.getState().openFromSidebar({ kind: "editor", path: absPath }),
+    },
+    {
+      id: "openInNewTab",
+      label: t("menuOpenInNewTab"),
+      icon: SquarePlus,
+      group: 0,
+      onSelect: () => useTabsStore.getState().openInNewTab({ kind: "editor", path: absPath }),
+    },
+    {
+      id: "showDiff",
+      label: t("menuShowDiff"),
+      icon: GitCompare,
+      group: 0,
+      onSelect: () => onOpen(file.path),
+    },
+    {
+      id: "stageAction",
+      label: actionLabel,
+      icon: ActionIcon,
+      group: 1,
+      onSelect: () => onAction(file.path),
+    },
+    {
+      id: "copyPath",
+      label: t("menuCopyPath"),
+      icon: Clipboard,
+      group: 2,
+      onSelect: () => void navigator.clipboard.writeText(absPath),
+    },
+    {
+      id: "copyRelativePath",
+      label: t("menuCopyRelativePath"),
+      icon: ClipboardList,
+      group: 2,
+      onSelect: () => void navigator.clipboard.writeText(file.path),
+    },
+    {
+      id: "reveal",
+      label: t("menuRevealFinder"),
+      icon: FolderOpen,
+      group: 2,
+      onSelect: () => void fsReveal(absPath),
+    },
+    ...(discardable
+      ? [
+          {
+            id: "discard",
+            label: t("discard"),
+            icon: Undo2,
+            group: 3,
+            danger: true,
+            onSelect: () => onRequestDiscard(file.path),
+          } satisfies ContextMenuItem,
+        ]
+      : []),
+  ];
+
   return (
-    <li className="group flex items-center gap-2 px-3 py-1 text-sm hover:bg-bg-elevated/60">
+    <li
+      onClick={() => onOpen(file.path)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenu({ x: e.clientX, y: e.clientY });
+      }}
+      style={{ paddingLeft: `${indent * 14 + 12}px` }}
+      className="group flex cursor-pointer items-center gap-2 py-1 pr-3 text-sm hover:bg-bg-elevated/60"
+    >
       <span
         className={`w-3 shrink-0 text-center font-mono text-xs ${
           STATUS_COLOR[file.status] ?? "text-fg-muted"
@@ -73,16 +178,91 @@ function StatusRow({
           {displayPath ?? file.path}
         </span>
       </Tooltip>
+      {discardable && (
+        <Tooltip label={t("discard")}>
+          <button
+            type="button"
+            aria-label={t("discard")}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRequestDiscard(file.path);
+            }}
+            className="rounded p-0.5 text-fg-subtle hover:bg-border-strong hover:text-danger"
+          >
+            <Undo2 size={14} />
+          </button>
+        </Tooltip>
+      )}
       <Tooltip label={actionLabel}>
         <button
           type="button"
           aria-label={actionLabel}
-          onClick={() => onAction(file.path)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAction(file.path);
+          }}
           className="rounded p-0.5 text-fg-subtle hover:bg-border-strong hover:text-fg"
         >
           <ActionIcon size={14} />
         </button>
       </Tooltip>
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
+      )}
+    </li>
+  );
+}
+
+function HistoryRow({ commit }: { commit: CommitInfo }) {
+  const { t } = useTranslation("sourceControl");
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+
+  function viewInGraph() {
+    usePendingGraphSelectionStore.getState().request(commit.id);
+    useTabsStore.getState().openGitGraphTab();
+  }
+
+  return (
+    <li
+      onClick={viewInGraph}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenu({ x: e.clientX, y: e.clientY });
+      }}
+      className="cursor-pointer py-1 text-xs hover:bg-bg-elevated/60"
+    >
+      <span className="font-mono text-fg-subtle">{commit.id}</span>
+      <span className="ml-2 text-fg-muted">{commit.summary}</span>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={[
+            {
+              id: "viewInGraph",
+              label: t("menuViewInGraph"),
+              icon: GitCompare,
+              group: 0,
+              onSelect: viewInGraph,
+            },
+            {
+              id: "copyHash",
+              label: t("menuCopyHash"),
+              icon: Clipboard,
+              group: 1,
+              onSelect: () => void navigator.clipboard.writeText(commit.id),
+            },
+            {
+              id: "copyMessage",
+              label: t("menuCopyMessage"),
+              icon: ClipboardList,
+              group: 1,
+              onSelect: () => void navigator.clipboard.writeText(commit.summary),
+            },
+          ]}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </li>
   );
 }
@@ -97,30 +277,150 @@ function basename(path: string): string {
 }
 
 /**
- * Renders a set of changed files either flat (one row per file, full path) or
- * grouped by folder. In folder mode each folder header carries a button that
- * runs the same action across every file under it (stage / unstage the whole
- * folder), and the rows show just the file name since the folder is the header.
+ * Recursively renders one level of a changed-files tree: folder headers with
+ * a collapse toggle and a subtree-wide action button, file rows via StatusRow.
  */
-function FileList({
-  files,
-  viewMode,
-  rootFolderLabel,
-  actionIcon,
+function FileTreeRows({
+  nodes,
+  depth,
+  collapsed,
+  onToggleCollapse,
+  repoPath,
+  actionIcon: ActionIcon,
   actionLabel,
   folderActionLabel,
   onFileAction,
   onFolderAction,
+  onFileOpen,
+  onRequestDiscard,
 }: {
-  files: FileStatus[];
-  viewMode: ViewMode;
-  rootFolderLabel: string;
+  nodes: TreeNode<FileStatus>[];
+  depth: number;
+  collapsed: Set<string>;
+  onToggleCollapse: (path: string) => void;
+  repoPath: string;
   actionIcon: typeof Plus;
   actionLabel: string;
   folderActionLabel: string;
   onFileAction: (path: string) => void;
   onFolderAction: (paths: string[]) => void;
+  onFileOpen: (path: string) => void;
+  onRequestDiscard?: (path: string) => void;
 }) {
+  const { t } = useTranslation("sourceControl");
+  return (
+    <>
+      {nodes.map((node) => {
+        if (node.kind === "file") {
+          return (
+            <StatusRow
+              key={node.path}
+              file={node.file}
+              // basename (not node.name) re-appends the trailing "/" git
+              // status uses for an untracked directory, e.g. "dir/" — the
+              // tree's own `name` is the bare segment "dir", used for
+              // sorting/keys, not display.
+              displayPath={basename(node.file.path)}
+              repoPath={repoPath}
+              actionIcon={ActionIcon}
+              actionLabel={actionLabel}
+              onAction={onFileAction}
+              onOpen={onFileOpen}
+              onRequestDiscard={onRequestDiscard}
+              indent={depth}
+            />
+          );
+        }
+        const isCollapsed = collapsed.has(node.path);
+        return (
+          <li key={node.path}>
+            <div
+              style={{ paddingLeft: `${depth * 14 + 12}px` }}
+              className="group flex items-center gap-1 py-1 pr-3 text-sm hover:bg-bg-elevated/60"
+            >
+              <button
+                type="button"
+                onClick={() => onToggleCollapse(node.path)}
+                aria-label={
+                  isCollapsed
+                    ? t("expandFolder", { name: node.path })
+                    : t("collapseFolder", { name: node.path })
+                }
+                className="flex shrink-0 items-center text-fg-subtle hover:text-fg"
+              >
+                {isCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+              </button>
+              <Folder size={13} className="shrink-0 text-fg-subtle" />
+              <Tooltip label={node.path} className="min-w-0 flex-1">
+                <span className="min-w-0 flex-1 truncate text-fg-muted">{node.name}</span>
+              </Tooltip>
+              <Tooltip label={`${folderActionLabel}: ${node.path}`}>
+                <button
+                  type="button"
+                  aria-label={`${folderActionLabel}: ${node.path}`}
+                  onClick={() => onFolderAction(collectDescendantFiles(node).map((f) => f.path))}
+                  className="rounded p-0.5 text-fg-subtle hover:bg-border-strong hover:text-fg"
+                >
+                  <ActionIcon size={14} />
+                </button>
+              </Tooltip>
+            </div>
+            {!isCollapsed && (
+              <ul>
+                <FileTreeRows
+                  nodes={node.children}
+                  depth={depth + 1}
+                  collapsed={collapsed}
+                  onToggleCollapse={onToggleCollapse}
+                  repoPath={repoPath}
+                  actionIcon={ActionIcon}
+                  actionLabel={actionLabel}
+                  folderActionLabel={folderActionLabel}
+                  onFileAction={onFileAction}
+                  onFolderAction={onFolderAction}
+                  onFileOpen={onFileOpen}
+                  onRequestDiscard={onRequestDiscard}
+                />
+              </ul>
+            )}
+          </li>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * Renders a set of changed files either flat (one row per file, full path) or
+ * as a nested folder tree. In tree mode each folder header carries a button
+ * that runs the same action across every file in its whole subtree (stage /
+ * unstage), and folders can be collapsed independently per section.
+ */
+function FileList({
+  files,
+  viewMode,
+  actionIcon,
+  actionLabel,
+  folderActionLabel,
+  repoPath,
+  onFileAction,
+  onFolderAction,
+  onFileOpen,
+  onRequestDiscard,
+}: {
+  files: FileStatus[];
+  viewMode: ViewMode;
+  actionIcon: typeof Plus;
+  actionLabel: string;
+  folderActionLabel: string;
+  repoPath: string;
+  onFileAction: (path: string) => void;
+  onFolderAction: (paths: string[]) => void;
+  onFileOpen: (path: string) => void;
+  onRequestDiscard?: (path: string) => void;
+}) {
+  const { collapsed, toggle: toggleFolder } = useCollapsedPaths();
+
   if (viewMode === "flat") {
     return (
       <ul>
@@ -128,59 +428,41 @@ function FileList({
           <StatusRow
             key={file.path}
             file={file}
+            repoPath={repoPath}
             actionIcon={actionIcon}
             actionLabel={actionLabel}
             onAction={onFileAction}
+            onOpen={onFileOpen}
+            onRequestDiscard={onRequestDiscard}
           />
         ))}
       </ul>
     );
   }
 
-  const FolderActionIcon = actionIcon;
   return (
     <ul>
-      {groupByFolder(files).map((group) => {
-        const display = group.folder === "" ? rootFolderLabel : group.folder;
-        return (
-          <li key={group.folder || "(root)"}>
-            <div className="group flex items-center gap-2 px-3 py-1 text-sm hover:bg-bg-elevated/60">
-              <Folder size={13} className="shrink-0 text-fg-subtle" />
-              <Tooltip label={display} className="min-w-0 flex-1">
-                <span className="min-w-0 flex-1 truncate text-fg-muted">{display}</span>
-              </Tooltip>
-              <Tooltip label={`${folderActionLabel}: ${display}`}>
-                <button
-                  type="button"
-                  aria-label={`${folderActionLabel}: ${display}`}
-                  onClick={() => onFolderAction(group.files.map((f) => f.path))}
-                  className="rounded p-0.5 text-fg-subtle hover:bg-border-strong hover:text-fg"
-                >
-                  <FolderActionIcon size={14} />
-                </button>
-              </Tooltip>
-            </div>
-            <ul className="pl-3">
-              {group.files.map((file) => (
-                <StatusRow
-                  key={file.path}
-                  file={file}
-                  displayPath={basename(file.path)}
-                  actionIcon={actionIcon}
-                  actionLabel={actionLabel}
-                  onAction={onFileAction}
-                />
-              ))}
-            </ul>
-          </li>
-        );
-      })}
+      <FileTreeRows
+        nodes={buildFileTree(files)}
+        depth={0}
+        collapsed={collapsed}
+        onToggleCollapse={toggleFolder}
+        repoPath={repoPath}
+        actionIcon={actionIcon}
+        actionLabel={actionLabel}
+        folderActionLabel={folderActionLabel}
+        onFileAction={onFileAction}
+        onFolderAction={onFolderAction}
+        onFileOpen={onFileOpen}
+        onRequestDiscard={onRequestDiscard}
+      />
     </ul>
   );
 }
 
 export function SourceControlView() {
   const { t } = useTranslation("sourceControl");
+  const { t: tCommon } = useTranslation("common");
   const rootPath = useWorkspaceStore((s) => s.rootPath);
   const [repoPath, setRepoPath] = useState<string | null>(null);
   const [resolved, setResolved] = useState(false);
@@ -193,6 +475,22 @@ export function SourceControlView() {
   const [refreshing, setRefreshing] = useState(false);
   const providerId = useChatStore((s) => s.providerId);
   const model = useChatStore((s) => s.model);
+  const openDiffTab = useTabsStore((s) => s.openDiffTab);
+  // Repo-relative path of the file awaiting discard confirmation, if any.
+  const [discardTarget, setDiscardTarget] = useState<string | null>(null);
+  // Basename of a file whose discard failed, shown in an error dialog.
+  const [discardError, setDiscardError] = useState<string | null>(null);
+
+  // Rows report repo-relative paths; the diff tab (like the editor) wants an
+  // absolute path so it can resolve the repo on its own.
+  const openDiff = useCallback(
+    (path: string, staged: boolean) => {
+      if (repoPath) {
+        openDiffTab(`${repoPath}/${path}`, staged);
+      }
+    },
+    [repoPath, openDiffTab],
+  );
 
   const refresh = useCallback(async () => {
     if (!repoPath) {
@@ -283,7 +581,18 @@ export function SourceControlView() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-bg-inset">
+    // Suppress the WebView's own context menu anywhere in the panel; rows
+    // layer the app ContextMenu on top via their own handlers. Text inputs
+    // keep the native menu — it's how right-click paste works.
+    <div
+      className="flex h-full flex-col bg-bg-inset"
+      onContextMenu={(e) => {
+        const el = e.target as HTMLElement;
+        if (!(el instanceof HTMLTextAreaElement) && !(el instanceof HTMLInputElement)) {
+          e.preventDefault();
+        }
+      }}
+    >
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-3">
         <span className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">
           {t("title")}
@@ -384,7 +693,6 @@ export function SourceControlView() {
             <FileList
               files={status!.staged}
               viewMode={viewMode}
-              rootFolderLabel={t("rootFolder")}
               actionIcon={Minus}
               actionLabel={t("unstage")}
               folderActionLabel={t("unstageFolder")}
@@ -396,6 +704,8 @@ export function SourceControlView() {
                   }
                 })
               }
+              onFileOpen={(path) => openDiff(path, true)}
+              repoPath={repoPath ?? ""}
             />
           </section>
         )}
@@ -427,7 +737,6 @@ export function SourceControlView() {
             <FileList
               files={status!.unstaged}
               viewMode={viewMode}
-              rootFolderLabel={t("rootFolder")}
               actionIcon={Plus}
               actionLabel={t("stage")}
               folderActionLabel={t("stageFolder")}
@@ -439,6 +748,9 @@ export function SourceControlView() {
                   }
                 })
               }
+              onFileOpen={(path) => openDiff(path, false)}
+              onRequestDiscard={setDiscardTarget}
+              repoPath={repoPath ?? ""}
             />
           )}
         </section>
@@ -450,15 +762,41 @@ export function SourceControlView() {
             </h3>
             <ul className="px-3">
               {history.map((commit) => (
-                <li key={commit.id} className="py-1 text-xs">
-                  <span className="font-mono text-fg-subtle">{commit.id}</span>
-                  <span className="ml-2 text-fg-muted">{commit.summary}</span>
-                </li>
+                <HistoryRow key={commit.id} commit={commit} />
               ))}
             </ul>
           </section>
         )}
       </div>
+
+      {discardTarget && (
+        <ConfirmDialog
+          title={t("discardTitle")}
+          message={t("discardMessage", { name: basename(discardTarget) })}
+          confirmLabel={t("discardConfirm")}
+          cancelLabel={tCommon("actions.cancel")}
+          onConfirm={() => {
+            const target = discardTarget;
+            setDiscardTarget(null);
+            // A destructive action must never fail silently: surface the
+            // error and refresh so the list reflects whatever really happened.
+            withRepo((repo) => gitRestoreFile(repo, target)).catch(() => {
+              setDiscardError(basename(target));
+              void refresh();
+            });
+          }}
+          onCancel={() => setDiscardTarget(null)}
+        />
+      )}
+
+      {discardError && (
+        <InfoDialog
+          title={t("discardTitle")}
+          message={t("discardFailed", { name: discardError })}
+          confirmLabel={tCommon("actions.confirm")}
+          onConfirm={() => setDiscardError(null)}
+        />
+      )}
     </div>
   );
 }

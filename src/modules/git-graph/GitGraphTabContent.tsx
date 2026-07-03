@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { GitCommit } from "lucide-react";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { Resizer } from "@/components/Resizer";
 import { gitResolveRepo } from "@/modules/source-control/lib/gitBridge";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { useNotifyStore } from "@/stores/notifyStore";
 import { GitGraph, type GitGraphLabels } from "./GitGraph";
 import { CommitInputModal, type InputField } from "./CommitInputModal";
 import { CommitDetailsPanel, type CommitDetailsLabels } from "./CommitDetailsPanel";
@@ -25,8 +26,11 @@ import {
   gitRevert,
   gitTagCreate,
   gitTagDelete,
+  gitWorktreeList,
+  type WorktreeItem,
 } from "./lib/gitGraphBridge";
 import { GitGraphToolbar, type GitGraphToolbarLabels } from "./GitGraphToolbar";
+import { usePendingGraphSelectionStore } from "./lib/pendingGraphSelectionStore";
 import { filterCommits } from "./lib/filterCommits";
 import { buildCommitMenu, buildRefMenu } from "./lib/contextMenuItems";
 import { splitRemoteRef } from "./lib/remoteRef";
@@ -69,6 +73,7 @@ export function GitGraphTabContent() {
   const [resolved, setResolved] = useState(false);
   const [commits, setCommits] = useState<CommitNode[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [worktrees, setWorktrees] = useState<WorktreeItem[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [selected, setSelected] = useState<CommitNode | null>(null);
@@ -103,23 +108,35 @@ export function GitGraphTabContent() {
     order: commitOrder,
   };
 
-  const visibleCommits = filterCommits(commits, searchQuery);
+  // Memoized so the pending-selection effect below only re-runs when the
+  // inputs really change — a fresh array identity every render would re-fire
+  // it on every unrelated re-render.
+  const visibleCommits = useMemo(
+    () => filterCommits(commits, searchQuery),
+    [commits, searchQuery],
+  );
 
   const currentBranch = branches.find((b) => b.isCurrent)?.name ?? "—";
 
   const reload = useCallback(
     async (repoPath: string, nextLimit: number, opts: GraphOptions) => {
       try {
-        const [log, branchList] = await Promise.all([
+        const [log, branchList, worktreeList] = await Promise.all([
           gitGraphLog(repoPath, nextLimit, opts),
           gitBranches(repoPath),
+          // Refetched on every reload so the selector's branch labels track
+          // in-app checkouts and `git worktree add/remove` runs in the app's
+          // own terminal; a failure just hides the selector.
+          gitWorktreeList(repoPath).catch((): WorktreeItem[] => []),
         ]);
         setCommits(log.commits);
         setHasMore(log.hasMore);
         setBranches(branchList);
+        setWorktrees(worktreeList);
       } catch (err: unknown) {
         setCommits([]);
         setBranches([]);
+        setWorktrees([]);
         setHasMore(false);
         setError(getErrorMessage(err));
       }
@@ -155,9 +172,22 @@ export function GitGraphTabContent() {
     };
   }, [rootPath]);
 
+  const handleSelectWorktree = useCallback(
+    (path: string) => {
+      // Switching worktree = switching the app's workspace root; the rootPath
+      // effect above re-resolves the repo and reloads everything, and the
+      // sidebar / file explorer follow the same store. The toast makes that
+      // side effect visible from inside the Git Graph tab.
+      useWorkspaceStore.getState().setRoot(path);
+      useNotifyStore.getState().notify(t("toolbar.worktreeSwitched"));
+    },
+    [t],
+  );
+
   // Initial load, and reload whenever a display option changes.
   useEffect(() => {
     if (!repo) {
+      setWorktrees([]);
       return;
     }
     setLimit(PAGE_SIZE);
@@ -204,6 +234,68 @@ export function GitGraphTabContent() {
     void reload(repo, next, options);
   }, [repo, limit, reload, options.branch, options.includeRemotes, options.includeTags, options.includeStashes, options.order]);
 
+  // Consume a pending "select this commit" request from the sidebar's history
+  // list. Subscribes to the store's hash (not a one-shot getState() read) so
+  // this fires for every new request, including one that arrives while the
+  // tab is already mounted with an unchanged commit list — Git Graph tabs
+  // stay mounted for the whole session once opened, so a second "View in
+  // Graph" click would otherwise never be observed by this effect at all.
+  const pendingHash = usePendingGraphSelectionStore((s) => s.hash);
+  const pendingSelectionAttempts = useRef(0);
+  const pendingSelectionTarget = useRef<string | null>(null);
+  const pendingRetryCommits = useRef<CommitNode[] | null>(null);
+  useEffect(() => {
+    if (!pendingHash) {
+      pendingSelectionTarget.current = null;
+      return;
+    }
+    // A fresh hash gets its own full retry budget — an exhausted search for
+    // a previous commit must not carry over and starve this one.
+    if (pendingSelectionTarget.current !== pendingHash) {
+      pendingSelectionTarget.current = pendingHash;
+      pendingSelectionAttempts.current = 0;
+      pendingRetryCommits.current = null;
+    }
+    if (commits.length === 0) {
+      return;
+    }
+    const hashMatches = (commitHash: string) =>
+      commitHash.startsWith(pendingHash) || pendingHash.startsWith(commitHash);
+    const visibleMatch = visibleCommits.find((c) => hashMatches(c.hash));
+    if (visibleMatch) {
+      setSelected(visibleMatch);
+      usePendingGraphSelectionStore.getState().consume();
+      pendingSelectionAttempts.current = 0;
+      return;
+    }
+    // Present in the full list but hidden by the current search filter —
+    // paging in more history can't fix that, so don't waste retries on it.
+    if (commits.some((c) => hashMatches(c.hash))) {
+      usePendingGraphSelectionStore.getState().consume();
+      pendingSelectionAttempts.current = 0;
+      return;
+    }
+    // Not loaded yet. Keep paging even once hasMore is already false: it
+    // reflects the state as of the last load, not the repo's current state
+    // — e.g. the tab was already open when a new commit landed elsewhere
+    // (the sidebar's own commit form). loadMore's reload() re-queries git
+    // log for real, so it picks up that new commit regardless.
+    if (pendingSelectionAttempts.current < 5) {
+      // One load per commits generation: effect re-runs while that load is
+      // still in flight (search typing, loadMore's own limit bump) must not
+      // burn the retry budget or stack duplicate reloads — each reload's
+      // setCommits produces a new array identity, which unlocks the next try.
+      if (pendingRetryCommits.current !== commits) {
+        pendingRetryCommits.current = commits;
+        pendingSelectionAttempts.current += 1;
+        loadMore();
+      }
+    } else {
+      usePendingGraphSelectionStore.getState().consume();
+      pendingSelectionAttempts.current = 0;
+    }
+  }, [pendingHash, commits, visibleCommits, loadMore]);
+
   // Turning remotes off hides remote branches; if one was selected, fall back
   // to Show All so the dropdown value and selectedBranch stay in sync.
   const handleToggleRemotes = useCallback(
@@ -241,6 +333,30 @@ export function GitGraphTabContent() {
     }
   }, [repo, limit, reload, options.branch, options.includeRemotes, options.includeTags, options.includeStashes, options.order]);
 
+  // Shared by the ref context menu and the toolbar's branch menu: prompt for a
+  // local name, then create the tracking branch.
+  const openCheckoutRemoteModal = useCallback(
+    (refName: string) => {
+      const { branch } = splitRemoteRef(refName);
+      setModal({
+        title: t("modal.checkoutRemote.title"),
+        confirmLabel: t("modal.checkoutRemote.confirm"),
+        fields: [
+          {
+            key: "name",
+            label: t("modal.branchName"),
+            placeholder: t("modal.branchPlaceholder"),
+            required: true,
+            defaultValue: branch,
+          },
+        ],
+        onConfirm: (values) =>
+          void runAction(() => gitBranchCheckoutTrack(repo!, values.name, refName)),
+      });
+    },
+    [t, runAction, repo],
+  );
+
   const toolbarLabels: GitGraphToolbarLabels = {
     branches: t("toolbar.branches"),
     showAll: t("toolbar.showAll"),
@@ -259,6 +375,8 @@ export function GitGraphTabContent() {
     commitOrder: t("toolbar.commitOrder"),
     orderDate: t("toolbar.orderDate"),
     orderTopo: t("toolbar.orderTopo"),
+    worktree: t("toolbar.worktree"),
+    switchBranch: t("toolbar.switchBranch"),
   };
 
   const persistDetailsHeight = useCallback(() => {
@@ -290,6 +408,10 @@ export function GitGraphTabContent() {
     aiRegenerate: t("details.aiRegenerate"),
     aiNeedKey: t("details.aiNeedKey"),
     aiEmpty: t("details.aiEmpty"),
+    viewFolder: t("details.viewFolder"),
+    viewFlat: t("details.viewFlat"),
+    expandFolder: (name: string) => t("details.expandFolder", { name }),
+    collapseFolder: (name: string) => t("details.collapseFolder", { name }),
   };
 
   const openCreateBranchModal = (commit: CommitNode) =>
@@ -381,24 +503,7 @@ export function GitGraphTabContent() {
         onMerge: () => void runAction(() => gitMerge(repo!, ref.name)),
         onDeleteBranch: () => void runAction(() => gitBranchDelete(repo!, ref.name, true)),
         onDeleteTag: () => void runAction(() => gitTagDelete(repo!, ref.name)),
-        onCheckoutRemote: () => {
-          const { branch } = splitRemoteRef(ref.name);
-          setModal({
-            title: t("modal.checkoutRemote.title"),
-            confirmLabel: t("modal.checkoutRemote.confirm"),
-            fields: [
-              {
-                key: "name",
-                label: t("modal.branchName"),
-                placeholder: t("modal.branchPlaceholder"),
-                required: true,
-                defaultValue: branch,
-              },
-            ],
-            onConfirm: (values) =>
-              void runAction(() => gitBranchCheckoutTrack(repo!, values.name, ref.name)),
-          });
-        },
+        onCheckoutRemote: () => openCheckoutRemoteModal(ref.name),
         onMergeRemote: () => void runAction(() => gitMerge(repo!, ref.name)),
         onPull: () => {
           const { remote, branch } = splitRemoteRef(ref.name);
@@ -464,6 +569,11 @@ export function GitGraphTabContent() {
           fetching={fetching}
           refreshing={busy}
           currentBranch={currentBranch}
+          worktrees={worktrees}
+          currentWorktreePath={repo}
+          onSelectWorktree={handleSelectWorktree}
+          onCheckoutBranch={(name) => void runAction(() => gitBranchCheckout(repo!, name))}
+          onCheckoutRemoteBranch={openCheckoutRemoteModal}
           labels={toolbarLabels}
         />
       </div>
