@@ -4,6 +4,7 @@ import "@/i18n";
 import { GitGraphTabContent } from "./GitGraphTabContent";
 import { usePendingGraphSelectionStore } from "./lib/pendingGraphSelectionStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { useNotifyStore } from "@/stores/notifyStore";
 
 vi.mock("@/modules/source-control/lib/gitBridge", () => ({
   gitResolveRepo: vi.fn().mockResolvedValue("/repo"),
@@ -170,6 +171,24 @@ describe("GitGraphTabContent worktree selector wiring", () => {
     fireEvent.click(screen.getByText("repo-dev (feature)"));
 
     await waitFor(() => expect(useWorkspaceStore.getState().rootPath).toBe("/repo-dev"));
+  });
+
+  it("posts a file-explorer-updated notice after switching worktree", async () => {
+    useNotifyStore.setState({ notice: null });
+    vi.mocked(gitGraphLog).mockResolvedValue(commitList(["aaa1111"], false));
+    vi.mocked(gitWorktreeList).mockResolvedValue([
+      { path: "/repo", branch: "master" },
+      { path: "/repo-dev", branch: "feature" },
+    ]);
+
+    render(<GitGraphTabContent />);
+
+    fireEvent.click((await screen.findAllByLabelText("Worktree"))[0]);
+    fireEvent.click(screen.getByText("repo-dev (feature)"));
+
+    await waitFor(() =>
+      expect(useNotifyStore.getState().notice?.text).toBe("File explorer updated"),
+    );
   });
 
   it("refetches the worktree list whenever the graph reloads, so labels track checkouts", async () => {

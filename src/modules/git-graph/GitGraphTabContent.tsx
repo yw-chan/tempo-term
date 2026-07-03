@@ -5,6 +5,7 @@ import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { Resizer } from "@/components/Resizer";
 import { gitResolveRepo } from "@/modules/source-control/lib/gitBridge";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { useNotifyStore } from "@/stores/notifyStore";
 import { GitGraph, type GitGraphLabels } from "./GitGraph";
 import { CommitInputModal, type InputField } from "./CommitInputModal";
 import { CommitDetailsPanel, type CommitDetailsLabels } from "./CommitDetailsPanel";
@@ -165,12 +166,17 @@ export function GitGraphTabContent() {
     };
   }, [rootPath]);
 
-  const handleSelectWorktree = useCallback((path: string) => {
-    // Switching worktree = switching the app's workspace root; the rootPath
-    // effect above re-resolves the repo and reloads everything, and the
-    // sidebar / file explorer follow the same store.
-    useWorkspaceStore.getState().setRoot(path);
-  }, []);
+  const handleSelectWorktree = useCallback(
+    (path: string) => {
+      // Switching worktree = switching the app's workspace root; the rootPath
+      // effect above re-resolves the repo and reloads everything, and the
+      // sidebar / file explorer follow the same store. The toast makes that
+      // side effect visible from inside the Git Graph tab.
+      useWorkspaceStore.getState().setRoot(path);
+      useNotifyStore.getState().notify(t("toolbar.worktreeSwitched"));
+    },
+    [t],
+  );
 
   // Initial load, and reload whenever a display option changes.
   useEffect(() => {

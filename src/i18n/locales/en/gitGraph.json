@@ -26,7 +26,8 @@
     "orderDate": "Date order",
     "orderTopo": "Topological order",
     "worktree": "Worktree",
-    "switchBranch": "Switch Branch"
+    "switchBranch": "Switch Branch",
+    "worktreeSwitched": "File explorer updated"
   },
   "details": {
     "author": "Author",
