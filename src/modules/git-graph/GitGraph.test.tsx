@@ -132,6 +132,70 @@ describe("GitGraph keyboard navigation", () => {
   });
 });
 
+describe("GitGraph compare-mode exit at boundaries", () => {
+  const commits = [
+    commit("c", ["b"], "msg c"),
+    commit("b", ["a"], "msg b"),
+    commit("a", [], "msg a"),
+  ];
+
+  it("plain ArrowDown at the bottom still collapses out of compare mode", () => {
+    const onSelect = vi.fn();
+    render(
+      <GitGraph
+        commits={commits}
+        selection={{ mode: "compare", from: commits[0], to: commits[2] }}
+        onSelectCommit={onSelect}
+        labels={LABELS}
+      />,
+    );
+    fireEvent.keyDown(container("msg c"), { key: "ArrowDown" });
+    expect(onSelect).toHaveBeenCalledWith(commits[2], { shiftKey: false });
+  });
+
+  it("plain ArrowUp at the top still collapses out of compare mode", () => {
+    const onSelect = vi.fn();
+    render(
+      <GitGraph
+        commits={commits}
+        selection={{ mode: "compare", from: commits[2], to: commits[0] }}
+        onSelectCommit={onSelect}
+        labels={LABELS}
+      />,
+    );
+    fireEvent.keyDown(container("msg c"), { key: "ArrowUp" });
+    expect(onSelect).toHaveBeenCalledWith(commits[0], { shiftKey: false });
+  });
+
+  it("Shift+ArrowDown at a root commit still collapses out of compare mode", () => {
+    const onSelect = vi.fn();
+    render(
+      <GitGraph
+        commits={commits}
+        selection={{ mode: "compare", from: commits[0], to: commits[2] }}
+        onSelectCommit={onSelect}
+        labels={LABELS}
+      />,
+    );
+    fireEvent.keyDown(container("msg c"), { key: "ArrowDown", shiftKey: true });
+    expect(onSelect).toHaveBeenCalledWith(commits[2], { shiftKey: false });
+  });
+
+  it("Shift+ArrowUp on the newest commit of a lane still collapses out of compare mode", () => {
+    const onSelect = vi.fn();
+    render(
+      <GitGraph
+        commits={commits}
+        selection={{ mode: "compare", from: commits[2], to: commits[0] }}
+        onSelectCommit={onSelect}
+        labels={LABELS}
+      />,
+    );
+    fireEvent.keyDown(container("msg c"), { key: "ArrowUp", shiftKey: true });
+    expect(onSelect).toHaveBeenCalledWith(commits[0], { shiftKey: false });
+  });
+});
+
 describe("GitGraph auto-scroll", () => {
   const commits = [
     commit("c", ["b"], "msg c"),

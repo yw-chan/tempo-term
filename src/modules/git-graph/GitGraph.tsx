@@ -102,22 +102,29 @@ export function GitGraph({
     if (currentIndex === -1) {
       return;
     }
+    // Any arrow key exits compare mode, even one that can't actually move
+    // the selection (a boundary clamp or a dead-end lane) — it still
+    // collapses onto the current commit as a single selection.
+    const isComparing = selection?.mode === "compare";
     if (event.key === "ArrowDown" && !event.shiftKey) {
       event.preventDefault();
       const targetIndex = Math.min(currentIndex + 1, commits.length - 1);
-      if (targetIndex !== currentIndex) {
+      if (targetIndex !== currentIndex || isComparing) {
         onSelectCommit(commits[targetIndex], { shiftKey: false });
       }
     } else if (event.key === "ArrowUp" && !event.shiftKey) {
       event.preventDefault();
       const targetIndex = Math.max(currentIndex - 1, 0);
-      if (targetIndex !== currentIndex) {
+      if (targetIndex !== currentIndex || isComparing) {
         onSelectCommit(commits[targetIndex], { shiftKey: false });
       }
     } else if (event.key === "ArrowDown" && event.shiftKey) {
       event.preventDefault();
       const parentHash = commits[currentIndex].parents[0];
       if (!parentHash) {
+        if (isComparing) {
+          onSelectCommit(commits[currentIndex], { shiftKey: false });
+        }
         return;
       }
       const targetIndex = firstParentRowIndex(commits, currentIndex);
@@ -131,6 +138,8 @@ export function GitGraph({
       const targetIndex = laneContinuationRowIndex(edges, currentIndex);
       if (targetIndex !== null) {
         onSelectCommit(commits[targetIndex], { shiftKey: false });
+      } else if (isComparing) {
+        onSelectCommit(commits[currentIndex], { shiftKey: false });
       }
     }
   }
