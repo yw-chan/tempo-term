@@ -398,32 +398,31 @@ pub fn commit(repo_path: &str, message: &str) -> Result<String, String> {
     Ok(oid.to_string())
 }
 
-/// Parses one `git log --pretty=format:%h|%p|%an|%ct|%s` line. Pure function,
-/// mirrors `parse_graph_commit`'s style. `%p` is empty (not absent) for a
-/// root commit, which `split_whitespace` already collapses to an empty Vec.
+/// Parses one `git log --pretty=format:%h%x1f%p%x1f%an%x1f%ct%x1f%s` line.
+/// `%x1f` (ASCII unit separator) is the field delimiter rather than a
+/// printable character like "|": author names and commit summaries are free
+/// text that could in principle contain any printable character, and a
+/// delimiter byte that never appears in normal text means no field can ever
+/// be mistaken for another, regardless of its position in the line.
+/// `splitn(5, ..)` bounds the split to the 5 known fields, so a delimiter-like
+/// byte inside the final field (the summary) is naturally preserved without
+/// an extra rejoin. `%p` is empty (not absent) for a root commit, which
+/// `split_whitespace` already collapses to an empty Vec.
 fn parse_commit_info(line: &str) -> Option<CommitInfo> {
     if line.trim().is_empty() {
         return None;
     }
-    let parts: Vec<&str> = line.split('|').collect();
-    let timestamp: i64 = parts.get(3).unwrap_or(&"").trim().parse().unwrap_or(0);
+    let parts: Vec<&str> = line.splitn(5, '\x1f').collect();
+    if parts.len() < 5 {
+        return None;
+    }
+    let timestamp: i64 = parts[3].trim().parse().unwrap_or(0);
     Some(CommitInfo {
-        id: parts.first().unwrap_or(&"").trim().to_string(),
-        parents: parts
-            .get(1)
-            .unwrap_or(&"")
-            .split_whitespace()
-            .map(String::from)
-            .collect(),
-        author: parts.get(2).unwrap_or(&"").trim().to_string(),
+        id: parts[0].trim().to_string(),
+        parents: parts[1].split_whitespace().map(String::from).collect(),
+        author: parts[2].trim().to_string(),
         timestamp,
-        // The summary may itself contain "|", so re-join the tail.
-        summary: parts
-            .get(4..)
-            .map(|rest| rest.join("|"))
-            .unwrap_or_default()
-            .trim()
-            .to_string(),
+        summary: parts[4].trim().to_string(),
     })
 }
 
@@ -442,7 +441,7 @@ pub fn log(repo_path: &str, limit: usize) -> Result<Vec<CommitInfo>, String> {
         &[
             "log",
             "--date-order",
-            "--pretty=format:%h|%p|%an|%ct|%s",
+            "--pretty=format:%h%x1f%p%x1f%an%x1f%ct%x1f%s",
             &max_count,
         ],
     )
@@ -1390,18 +1389,31 @@ mod tests {
 
     #[test]
     fn parse_commit_info_splits_fields_and_keeps_pipes_in_summary() {
-        let commit = parse_commit_info("abc123|p1 p2|Ada|1700000000|fix: a|b").unwrap();
+        let commit =
+            parse_commit_info("abc123\x1fp1 p2\x1fAda\x1f1700000000\x1ffix: a|b").unwrap();
         assert_eq!(commit.id, "abc123");
         assert_eq!(commit.parents, vec!["p1".to_string(), "p2".to_string()]);
         assert_eq!(commit.author, "Ada");
         assert_eq!(commit.timestamp, 1700000000);
-        // The summary retained its embedded pipe.
+        // The summary keeps a literal pipe intact; "|" is not the delimiter.
         assert_eq!(commit.summary, "fix: a|b");
     }
 
     #[test]
+    fn parse_commit_info_keeps_a_pipe_embedded_in_the_author_name() {
+        // A printable delimiter like "|" would misalign every field after
+        // the author if the author name itself contained one. %x1f (ASCII
+        // unit separator) can't appear in a real git author name, so a
+        // literal "|" there is now just ordinary text, not a field boundary.
+        let commit = parse_commit_info("abc123\x1fp1\x1fA|B\x1f1700000000\x1fmsg").unwrap();
+        assert_eq!(commit.author, "A|B");
+        assert_eq!(commit.timestamp, 1700000000);
+        assert_eq!(commit.summary, "msg");
+    }
+
+    #[test]
     fn parse_commit_info_handles_a_root_commit_with_no_parents() {
-        let commit = parse_commit_info("abc123||Ada|1700000000|root").unwrap();
+        let commit = parse_commit_info("abc123\x1f\x1fAda\x1f1700000000\x1froot").unwrap();
         assert!(commit.parents.is_empty());
     }
 
@@ -1409,6 +1421,11 @@ mod tests {
     fn parse_commit_info_rejects_blank_lines() {
         assert!(parse_commit_info("   ").is_none());
         assert!(parse_commit_info("").is_none());
+    }
+
+    #[test]
+    fn parse_commit_info_rejects_a_truncated_line() {
+        assert!(parse_commit_info("abc123\x1fp1\x1fAda").is_none());
     }
 
     #[test]
