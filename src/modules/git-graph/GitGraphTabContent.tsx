@@ -448,6 +448,7 @@ export function GitGraphTabContent() {
     noDiff: t("details.noDiff"),
     noFileSelected: t("details.noFileSelected"),
     close: t("details.close"),
+    compareBadge: t("details.compareBadge"),
     diffTab: t("details.diffTab"),
     aiTab: t("details.aiTab"),
     aiGenerate: t("details.aiGenerate"),

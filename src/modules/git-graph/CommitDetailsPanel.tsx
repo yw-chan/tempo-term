@@ -26,6 +26,8 @@ export interface CommitDetailsLabels {
   noDiff: string;
   noFileSelected: string;
   close: string;
+  /** Badge shown next to the header hashes while comparing two commits. */
+  compareBadge: string;
   diffTab: string;
   aiTab: string;
   aiGenerate: string;
@@ -283,9 +285,16 @@ export function CommitDetailsPanel({ repo, selection, onClose, labels }: CommitD
   return (
     <div className="flex h-full flex-col overflow-hidden bg-bg">
       <div className="flex items-center justify-between border-b border-border bg-bg-inset px-3 py-1.5">
-        <span className="select-all font-mono text-xs font-semibold text-accent">
-          {headerHash}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="select-all font-mono text-xs font-semibold text-accent">
+            {headerHash}
+          </span>
+          {isCompare && (
+            <span className="rounded border border-accent/40 bg-accent/15 px-1.5 py-0.5 text-[11px] font-medium text-accent">
+              {labels.compareBadge}
+            </span>
+          )}
+        </div>
         <Tooltip label={labels.close}>
           <button
             type="button"

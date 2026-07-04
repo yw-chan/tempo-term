@@ -25,6 +25,7 @@ const LABELS = {
   noDiff: "No diff",
   noFileSelected: "Select a file",
   close: "Close",
+  compareBadge: "Comparing",
   diffTab: "Diff",
   aiTab: "AI Explain",
   aiGenerate: "Explain",
@@ -142,9 +143,24 @@ describe("CommitDetailsPanel compare mode", () => {
     );
 
     expect(await screen.findByText("def5678 .. abc1234")).toBeInTheDocument();
+    expect(screen.getByText("Comparing")).toBeInTheDocument();
     await waitFor(() =>
       expect(gitCommitRangeFileDiff).toHaveBeenCalledWith("/repo", "def5678", "abc1234", "a.ts"),
     );
+  });
+
+  it("does not show the compare badge in single-commit mode", async () => {
+    vi.mocked(gitCommitDetails).mockResolvedValue({ message: "feat: x", files: [] });
+    render(
+      <CommitDetailsPanel
+        repo="/repo"
+        selection={{ mode: "single", commit: COMMIT }}
+        onClose={() => {}}
+        labels={LABELS}
+      />,
+    );
+    await screen.findByText("abc1234");
+    expect(screen.queryByText("Comparing")).not.toBeInTheDocument();
   });
 
   it("hides the AI tab in compare mode", async () => {
