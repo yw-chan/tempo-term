@@ -10,6 +10,7 @@ import {
   FolderOpen,
   FolderPlus,
   MessageSquarePlus,
+  Pencil,
   SquarePlus,
   TerminalSquare,
   Trash2,
@@ -20,12 +21,15 @@ import {
   fsCreateFile,
   fsDelete,
   fsReadDir,
+  fsRename,
   fsReveal,
   type DirEntry,
 } from "./lib/fsBridge";
 import { dirname, joinPath, relativePath } from "./lib/paths";
 import { beginEntryDrag, consumeDragClick } from "./lib/dragEntry";
+import { isRemoteUri } from "@/modules/ssh/lib/remotePath";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { InfoDialog } from "@/components/InfoDialog";
 import { Tooltip } from "@/components/Tooltip";
 import { useTabsStore } from "@/stores/tabsStore";
@@ -81,7 +85,9 @@ function TreeNode({ entry, depth, onReloadParent, collapseSignal, expandSignal }
   const [children, setChildren] = useState<DirEntry[] | null>(null);
   const [menu, setMenu] = useState<MenuPosition | null>(null);
   const [creating, setCreating] = useState<Creating>(null);
+  const [renaming, setRenaming] = useState(false);
   const [atCapacity, setAtCapacity] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   // JS hover: CSS :hover is suppressed inside a draggable subtree (WebKit), so
   // track hover manually to highlight just this row.
   const [hovered, setHovered] = useState(false);
@@ -226,7 +232,22 @@ function TreeNode({ entry, depth, onReloadParent, collapseSignal, expandSignal }
 
   async function handleDelete() {
     try {
-      await fsDelete(entry.path);
+      await fsDelete(entry.path, entry.is_dir);
+    } catch {
+      return;
+    }
+    onReloadParent();
+  }
+
+  async function confirmRename(name: string) {
+    const trimmed = name.trim();
+    setRenaming(false);
+    if (!trimmed || trimmed === entry.name) {
+      return;
+    }
+    const to = joinPath(dirname(entry.path), trimmed);
+    try {
+      await fsRename(entry.path, to);
     } catch {
       return;
     }
@@ -320,12 +341,28 @@ function TreeNode({ entry, depth, onReloadParent, collapseSignal, expandSignal }
       onSelect: attachToAgent,
     },
     {
+      id: "rename",
+      label: t("menu.rename"),
+      icon: Pencil,
+      group: 4,
+      onSelect: () => setRenaming(true),
+    },
+    {
       id: "delete",
       label: t("menu.delete"),
       icon: Trash2,
       group: 4,
       danger: true,
-      onSelect: () => void handleDelete(),
+      // Local deletes go to the OS trash and are recoverable, so they fire
+      // immediately as before. Remote (SFTP) deletes are permanent, so gate
+      // them behind a confirm dialog first.
+      onSelect: () => {
+        if (isRemoteUri(entry.path)) {
+          setConfirmingDelete(true);
+        } else {
+          void handleDelete();
+        }
+      },
     },
   ];
 
@@ -334,53 +371,55 @@ function TreeNode({ entry, depth, onReloadParent, collapseSignal, expandSignal }
       {/* Pointer-based drag (not HTML5) so Tauri's native drag interception
           doesn't break hover/drop coordinates; the row swallows the click that
           trails a completed drag so it doesn't also open/expand the entry. */}
-      <div
-        onPointerDown={(event) =>
-          beginEntryDrag(
-            { path: entry.path, name: entry.name, isDir: entry.is_dir },
-            event,
-          )
-        }
-      >
-        <Tooltip label={entry.name} className="w-full">
-          <button
-            type="button"
-            onClick={() => {
-              if (consumeDragClick()) {
-                return;
-              }
-              void toggle();
-            }}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              setMenu({ x: event.clientX, y: event.clientY });
-            }}
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
-            style={{ paddingLeft: depth * 12 + 8 }}
-            className={`flex w-full items-center gap-1.5 py-1 pr-2 text-left text-[13px] transition-colors ${
-              isActive
-                ? "bg-accent/15 text-fg"
-                : hovered
-                  ? "bg-fg/10 text-fg"
-                  : "text-fg-muted"
-            }`}
-          >
-            {entry.is_dir ? (
-              <>
-                {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                <FileIcon name={entry.name} isDir open={expanded} size={16} />
-              </>
-            ) : (
-              <>
-                <span className="w-[14px]" />
-                <FileIcon name={entry.name} isDir={false} size={16} />
-              </>
-            )}
-            <span className="truncate">{entry.name}</span>
-          </button>
-        </Tooltip>
-      </div>
+      {!renaming && (
+        <div
+          onPointerDown={(event) =>
+            beginEntryDrag(
+              { path: entry.path, name: entry.name, isDir: entry.is_dir },
+              event,
+            )
+          }
+        >
+          <Tooltip label={entry.name} className="w-full">
+            <button
+              type="button"
+              onClick={() => {
+                if (consumeDragClick()) {
+                  return;
+                }
+                void toggle();
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setMenu({ x: event.clientX, y: event.clientY });
+              }}
+              onMouseEnter={() => setHovered(true)}
+              onMouseLeave={() => setHovered(false)}
+              style={{ paddingLeft: depth * 12 + 8 }}
+              className={`flex w-full items-center gap-1.5 py-1 pr-2 text-left text-[13px] transition-colors ${
+                isActive
+                  ? "bg-accent/15 text-fg"
+                  : hovered
+                    ? "bg-fg/10 text-fg"
+                    : "text-fg-muted"
+              }`}
+            >
+              {entry.is_dir ? (
+                <>
+                  {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  <FileIcon name={entry.name} isDir open={expanded} size={16} />
+                </>
+              ) : (
+                <>
+                  <span className="w-[14px]" />
+                  <FileIcon name={entry.name} isDir={false} size={16} />
+                </>
+              )}
+              <span className="truncate">{entry.name}</span>
+            </button>
+          </Tooltip>
+        </div>
+      )}
 
       {creating && (
         <NewEntryInput
@@ -388,6 +427,16 @@ function TreeNode({ entry, depth, onReloadParent, collapseSignal, expandSignal }
           depth={depth + 1}
           onConfirm={confirmCreate}
           onCancel={() => setCreating(null)}
+        />
+      )}
+
+      {renaming && (
+        <NewEntryInput
+          kind={entry.is_dir ? "dir" : "file"}
+          depth={depth}
+          initialValue={entry.name}
+          onConfirm={(name) => void confirmRename(name)}
+          onCancel={() => setRenaming(false)}
         />
       )}
 
@@ -423,6 +472,20 @@ function TreeNode({ entry, depth, onReloadParent, collapseSignal, expandSignal }
           onConfirm={() => setAtCapacity(false)}
         />
       )}
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title={t("menu.delete")}
+          message={t("menu.deleteRemoteConfirm", { name: entry.name })}
+          confirmLabel={t("menu.delete")}
+          cancelLabel={tCommon("actions.cancel")}
+          onConfirm={() => {
+            setConfirmingDelete(false);
+            void handleDelete();
+          }}
+          onCancel={() => setConfirmingDelete(false)}
+        />
+      )}
     </li>
   );
 }
@@ -430,14 +493,16 @@ function TreeNode({ entry, depth, onReloadParent, collapseSignal, expandSignal }
 interface NewEntryInputProps {
   kind: "file" | "dir";
   depth: number;
+  /** Pre-filled text (rename); empty for a new entry. */
+  initialValue?: string;
   onConfirm: (name: string) => void;
   onCancel: () => void;
 }
 
 /** An inline row that prompts for a new file or folder name, in place in the tree. */
-function NewEntryInput({ kind, depth, onConfirm, onCancel }: NewEntryInputProps) {
+function NewEntryInput({ kind, depth, initialValue, onConfirm, onCancel }: NewEntryInputProps) {
   const { t } = useTranslation("explorer");
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(initialValue ?? "");
 
   return (
     <div
@@ -457,6 +522,11 @@ function NewEntryInput({ kind, depth, onConfirm, onCancel }: NewEntryInputProps)
         aria-label={kind === "file" ? t("menu.newFile") : t("menu.newFolder")}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={(event) => {
+          // Ignore the Enter that commits an IME candidate (CJK input), so it
+          // doesn't also confirm/cancel this entry mid-composition.
+          if (event.nativeEvent.isComposing || event.keyCode === 229) {
+            return;
+          }
           if (event.key === "Enter") {
             event.preventDefault();
             onConfirm(value);

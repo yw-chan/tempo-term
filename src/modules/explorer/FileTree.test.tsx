@@ -13,6 +13,7 @@ vi.mock("./lib/fsBridge", () => ({
   fsCreateDir: vi.fn(),
   fsCreateFile: vi.fn(),
   fsDelete: vi.fn(),
+  fsRename: vi.fn(),
   fsReveal: vi.fn(),
 }));
 
@@ -307,5 +308,132 @@ describe("FileTree context menu: open in new tab", () => {
     fireEvent.click(screen.getByText("menu.openInNewTab"));
 
     expect(useTabsStore.getState().tabs).toHaveLength(2);
+  });
+});
+
+describe("FileTree rename", () => {
+  // fsRename is a shared mock across both tests below; vitest does not clear
+  // call history between tests in the same file (no clearMocks/restoreMocks
+  // configured), so without this reset the second test would see the first
+  // test's call and fail its `not.toHaveBeenCalled()` assertion.
+  beforeEach(async () => {
+    const { fsRename } = await import("./lib/fsBridge");
+    vi.mocked(fsRename).mockClear();
+  });
+
+  it("renames an entry in place and reloads the parent", async () => {
+    const { fsRename } = await import("./lib/fsBridge");
+    vi.mocked(fsRename).mockResolvedValue(undefined);
+    const onReloadRoot = vi.fn();
+    const entries = [{ name: "old.ts", path: "/p/old.ts", is_dir: false, size: 0 }];
+    render(<FileTree entries={entries} onReloadRoot={onReloadRoot} />);
+
+    fireEvent.contextMenu(screen.getByText("old.ts"));
+    fireEvent.click(screen.getByText("menu.rename"));
+    const input = screen.getByDisplayValue("old.ts");
+    fireEvent.change(input, { target: { value: "new.ts" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await vi.waitFor(() => expect(fsRename).toHaveBeenCalledWith("/p/old.ts", "/p/new.ts"));
+    expect(onReloadRoot).toHaveBeenCalled();
+  });
+
+  it("does nothing when the name is unchanged", async () => {
+    const { fsRename } = await import("./lib/fsBridge");
+    const entries = [{ name: "same.ts", path: "/p/same.ts", is_dir: false, size: 0 }];
+    render(<FileTree entries={entries} onReloadRoot={() => {}} />);
+
+    fireEvent.contextMenu(screen.getByText("same.ts"));
+    fireEvent.click(screen.getByText("menu.rename"));
+    const input = screen.getByDisplayValue("same.ts");
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await Promise.resolve();
+    expect(fsRename).not.toHaveBeenCalled();
+  });
+
+  it("ignores an IME composition-commit Enter (keyCode 229) but still confirms on a plain Enter", async () => {
+    const { fsRename } = await import("./lib/fsBridge");
+    vi.mocked(fsRename).mockResolvedValue(undefined);
+    const entries = [{ name: "old.ts", path: "/p/old.ts", is_dir: false, size: 0 }];
+    render(<FileTree entries={entries} onReloadRoot={() => {}} />);
+
+    fireEvent.contextMenu(screen.getByText("old.ts"));
+    fireEvent.click(screen.getByText("menu.rename"));
+    const input = screen.getByDisplayValue("old.ts");
+
+    fireEvent.change(input, { target: { value: "new.ts" } });
+    // Simulates an IME candidate-commit Enter: must not confirm the rename.
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+
+    expect(fsRename).not.toHaveBeenCalled();
+    expect(screen.getByDisplayValue("new.ts")).toBeInTheDocument();
+
+    // A genuine Enter afterwards still confirms normally.
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await vi.waitFor(() =>
+      expect(fsRename).toHaveBeenCalledWith("/p/old.ts", "/p/new.ts"),
+    );
+  });
+});
+
+describe("FileTree delete", () => {
+  beforeEach(async () => {
+    const { fsDelete } = await import("./lib/fsBridge");
+    vi.mocked(fsDelete).mockClear();
+  });
+
+  it("gates a remote delete behind a confirm dialog and only calls fsDelete on confirm", async () => {
+    const { fsDelete } = await import("./lib/fsBridge");
+    vi.mocked(fsDelete).mockResolvedValue(undefined);
+    const entries = [
+      { name: "x.txt", path: "ssh://c1/home/me/x.txt", is_dir: false, size: 0 },
+    ];
+    render(<FileTree entries={entries} onReloadRoot={() => {}} />);
+
+    fireEvent.contextMenu(screen.getByText("x.txt"));
+    fireEvent.click(screen.getByText("menu.delete"));
+
+    expect(fsDelete).not.toHaveBeenCalled();
+    expect(screen.getByText("menu.deleteRemoteConfirm")).toBeInTheDocument();
+
+    // The dialog's title also reads "menu.delete", so disambiguate by role
+    // to click its confirm button specifically.
+    fireEvent.click(screen.getByRole("button", { name: "menu.delete" }));
+
+    await vi.waitFor(() =>
+      expect(fsDelete).toHaveBeenCalledWith("ssh://c1/home/me/x.txt", false),
+    );
+  });
+
+  it("cancels a remote delete without ever calling fsDelete", async () => {
+    const { fsDelete } = await import("./lib/fsBridge");
+    const entries = [
+      { name: "x.txt", path: "ssh://c1/home/me/x.txt", is_dir: false, size: 0 },
+    ];
+    render(<FileTree entries={entries} onReloadRoot={() => {}} />);
+
+    fireEvent.contextMenu(screen.getByText("x.txt"));
+    fireEvent.click(screen.getByText("menu.delete"));
+    fireEvent.click(screen.getByText("actions.cancel"));
+
+    expect(screen.queryByText("menu.deleteRemoteConfirm")).not.toBeInTheDocument();
+    expect(fsDelete).not.toHaveBeenCalled();
+  });
+
+  it("deletes a local entry immediately, with no confirm dialog", async () => {
+    const { fsDelete } = await import("./lib/fsBridge");
+    vi.mocked(fsDelete).mockResolvedValue(undefined);
+    const entries = [{ name: "local.txt", path: "/p/local.txt", is_dir: false, size: 0 }];
+    render(<FileTree entries={entries} onReloadRoot={() => {}} />);
+
+    fireEvent.contextMenu(screen.getByText("local.txt"));
+    fireEvent.click(screen.getByText("menu.delete"));
+
+    await vi.waitFor(() =>
+      expect(fsDelete).toHaveBeenCalledWith("/p/local.txt", false),
+    );
+    expect(screen.queryByText("menu.deleteRemoteConfirm")).not.toBeInTheDocument();
   });
 });

@@ -4,6 +4,7 @@
   "rootPlaceholder": "Folder path",
   "go": "Go",
   "findFiles": "Find files",
+  "refresh": "Refresh",
   "expandAll": "Expand All",
   "collapseAll": "Collapse All",
   "findPlaceholder": "Type to fuzzy-find files",
@@ -25,6 +26,8 @@
     "copyPath": "Copy Path",
     "copyRelativePath": "Copy Relative Path",
     "attachToAgent": "Attach to Agent",
-    "delete": "Delete"
+    "rename": "Rename",
+    "delete": "Delete",
+    "deleteRemoteConfirm": "Permanently delete \"{{name}}\" from the remote host? There is no trash over SFTP — this cannot be undone."
   }
 }

@@ -4,6 +4,7 @@
   "rootPlaceholder": "資料夾路徑",
   "go": "前往",
   "findFiles": "尋找檔案",
+  "refresh": "重新整理",
   "expandAll": "全部展開",
   "collapseAll": "全部收合",
   "findPlaceholder": "輸入以模糊搜尋檔案",
@@ -25,6 +26,8 @@
     "copyPath": "複製路徑",
     "copyRelativePath": "複製相對路徑",
     "attachToAgent": "附加到 AI 助手",
-    "delete": "刪除"
+    "rename": "重新命名",
+    "delete": "刪除",
+    "deleteRemoteConfirm": "確定要從遠端主機永久刪除「{{name}}」嗎？SFTP 沒有垃圾桶，刪了救不回來。"
   }
 }

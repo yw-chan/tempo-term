@@ -52,6 +52,7 @@ import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { useUiStore, selectAnyOverlayOpen } from "@/stores/uiStore";
 import { shouldShowPreview } from "@/modules/preview/lib/previewWebview";
 import { useRemoteExplorerRoot } from "@/modules/ssh/lib/useRemoteExplorerRoot";
+import { useOsc7FallbackHint } from "@/modules/ssh/lib/useOsc7FallbackHint";
 
 const MIN_FRACTION = 0.1;
 const MAX_FRACTION = 0.9;
@@ -150,6 +151,7 @@ export function PaneTabContent({ tab }: { tab: Tab }) {
       ? activeLeaf.content.ssh.connectionId
       : null;
   useRemoteExplorerRoot(activeSshConnectionId);
+  const { hintConnectionId, dismissHint } = useOsc7FallbackHint(activeSshConnectionId);
   // The splitter currently being dragged, used to drive the drag overlay's
   // resize cursor (see the overlay below).
   const draggingSplitter = draggingSplitterId
@@ -468,10 +470,9 @@ export function PaneTabContent({ tab }: { tab: Tab }) {
                     active={active}
                     isActiveTab={isActiveTab}
                     cwdTracking={
-                      active &&
-                      isActiveTab &&
-                      // SSH panes have no cwd; skip cwd tracking for them.
-                      (pane.content.kind !== "terminal" || !pane.content.ssh)
+                      // SSH panes track cwd through OSC 7 reports from the
+                      // remote shell instead of the local poll.
+                      active && isActiveTab
                     }
                     cwd={resolveTerminalCwd(
                       pane.content.kind === "terminal" ? pane.content.cwd : undefined,
@@ -595,6 +596,15 @@ export function PaneTabContent({ tab }: { tab: Tab }) {
           message={t("connectionsPanel.alreadyOpenAlert", { name: sshAlreadyConnectedName })}
           confirmLabel={t("actions.confirm")}
           onConfirm={() => setSshAlreadyConnected(false)}
+        />
+      )}
+
+      {hintConnectionId && (
+        <InfoDialog
+          title={t("osc7Hint.title")}
+          message={t("osc7Hint.message")}
+          confirmLabel={t("osc7Hint.confirm")}
+          onConfirm={dismissHint}
         />
       )}
     </div>

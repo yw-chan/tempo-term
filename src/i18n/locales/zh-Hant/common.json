@@ -101,6 +101,11 @@
     "close": "關閉"
   },
   "paneCapacityAlert": "這個分頁最多只能開 8 個面板，請先關掉一個再試",
+  "osc7Hint": {
+    "title": "跟隨遠端 cd",
+    "message": "這個 SSH 連線尚未回報工作目錄，檔案總管無法跟隨遠端的 cd。編輯這個連線可複製一段 shell 設定片段來啟用。",
+    "confirm": "知道了"
+  },
   "placeholder": {
     "comingSoon": "即將推出",
     "terminalArea": "終端機工作階段會顯示在這裡",
@@ -193,6 +198,12 @@
       "destHost": "目標主機",
       "destPort": "目標埠號",
       "enabled": "啟用"
+    },
+    "osc7": {
+      "toggle": "跟隨遠端 cd（shell 設定）",
+      "explanation": "要讓檔案總管跟隨遠端主機上的 cd，遠端 shell 必須回報工作目錄（OSC 7）。把這段貼進遠端 shell 的 rc 檔：",
+      "copy": "複製片段",
+      "copied": "已複製"
     }
   },
   "workspace": {
