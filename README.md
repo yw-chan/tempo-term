@@ -4,6 +4,8 @@
 
 # TempoTerm
 
+<img src="screenshots/tempo-term-feature-flow-en.png" alt="TempoTerm feature flow diagram" width="860" />
+
 An AI-native terminal workspace that brings the terminal, code editor, file explorer, Git and an AI assistant into a single window, with first-class Traditional Chinese support.
 
 **English** · [正體中文](./README.zh-Hant.md) · [简体中文](./README.zh-Hans.md)

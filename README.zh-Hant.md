@@ -4,6 +4,8 @@
 
 # TempoTerm
 
+<img src="screenshots/tempo-term-feature-flow.png" alt="TempoTerm 功能流程圖" width="860" />
+
 一個 AI 原生的終端機工作區，把終端機、程式碼編輯器、檔案總管、Git 與 AI 助手整合在同一個視窗，並提供完整的正體中文支援
 
 [English](./README.md) · **正體中文** · [简体中文](./README.zh-Hans.md)
