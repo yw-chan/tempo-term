@@ -54,6 +54,90 @@ export function serializeBufferText(term: Terminal, maxLines?: number): string {
   return lines.join("\n");
 }
 
+/** One terminal buffer row for the logical-line tail walk. */
+export interface BufferRow {
+  text: string;
+  /** True when this row is a soft-wrap continuation of the row above it. */
+  isWrapped: boolean;
+}
+
+/**
+ * Serialize the last `maxLines` LOGICAL lines from the tail of a terminal buffer,
+ * then strip the restored-history prefix via {@link dropRestoredPrefix}. Rows are
+ * fetched lazily via `getRow` from `rowCount - 1` downward, so this only touches
+ * O(kept) rows — never the whole (up to 10k-row) buffer.
+ *
+ * Windowing by LOGICAL lines — not raw rows — is what makes this equivalent to
+ * serializing the whole buffer then trimming to `maxLines`: a fixed row window
+ * holds fewer than `maxLines` logical lines whenever recent output soft-wraps,
+ * which would silently shrink the retained scrollback.
+ *
+ * The separator is applied AFTER collecting the tail (not as an early break in
+ * the backward walk), so it anchors on the FIRST/top-most occurrence — the real
+ * restore boundary always sits above the live output, so a live line that merely
+ * echoes the sentinel is kept as content, exactly as a full-buffer scan does.
+ * Breaking the walk at the first separator it met would anchor on the BOTTOM-most
+ * one and wrongly truncate at such an echo.
+ *
+ * One bounded-walk caveat vs a full scan: if the live session produces more than
+ * `maxLines` lines AND a live line echoes the exact sentinel, the real separator
+ * has scrolled above the collected window, so the strip anchors on the echo and
+ * keeps a shorter (still correct) suffix. This needs the unique sentinel to be
+ * emitted verbatim by the shell, so it is vanishingly rare; the alternative — a
+ * full-buffer scan to locate the real separator — is the O(buffer) cost this
+ * function exists to avoid.
+ */
+export function serializeLogicalTail(
+  getRow: (y: number) => BufferRow | null,
+  rowCount: number,
+  maxLines: number,
+  separator: string,
+): string {
+  const kept: string[] = []; // newest-first while collecting
+  let current = "";
+  let seenNonBlank = false;
+  for (let y = rowCount - 1; y >= 0 && kept.length < maxLines; y--) {
+    const row = getRow(y);
+    if (!row) {
+      continue;
+    }
+    // Rebuild the logical line by prepending rows until its non-wrapped start.
+    current = row.text + current;
+    if (row.isWrapped) {
+      continue;
+    }
+    const logical = current.replace(/\s+$/u, "");
+    current = "";
+    // Drop only the trailing (newest) run of blank lines, matching the full
+    // serialize + trim; blank lines between real output are kept.
+    if (!seenNonBlank && logical === "") {
+      continue;
+    }
+    seenNonBlank = true;
+    kept.push(logical);
+  }
+  return dropRestoredPrefix(kept.reverse().join("\n"), separator);
+}
+
+/**
+ * The live tail of a terminal for a periodic snapshot: the last `maxLines`
+ * logical lines the shell produced this session, with the restored-history
+ * prefix stripped. Thin adapter over {@link serializeLogicalTail} that reads rows
+ * straight from the live buffer.
+ */
+export function serializeLiveTail(term: Terminal, maxLines: number, separator: string): string {
+  const buffer = term.buffer.active;
+  return serializeLogicalTail(
+    (y) => {
+      const line = buffer.getLine(y);
+      return line ? { text: line.translateToString(false), isWrapped: line.isWrapped } : null;
+    },
+    buffer.length,
+    maxLines,
+    separator,
+  );
+}
+
 /**
  * Strip the restored read-only history from a freshly serialized buffer so a
  * snapshot only persists what the live shell produced this session.
