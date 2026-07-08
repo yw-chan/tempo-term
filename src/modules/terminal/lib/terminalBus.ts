@@ -129,8 +129,9 @@ export function runCommandInTerminal(command: string): void {
   }
 
   // CR (`\r`), not LF — the byte Enter sends. Windows' PSReadLine treats LF as
-  // a `>>` continuation (never submits); CR submits on every platform.
-  writeToTerminal(leafId, command.endsWith("\r") ? command : `${command}\r`);
+  // a `>>` continuation (never submits); CR submits on every platform. Strip any
+  // trailing CR/LF first so a caller-supplied newline can't yield `\n\r`.
+  writeToTerminal(leafId, `${command.replace(/[\r\n]+$/, "")}\r`);
 }
 
 /** Read the active terminal's scrollback as plain text, or null if there is

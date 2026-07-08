@@ -126,8 +126,9 @@ export function LauncherPanel({ target }: LauncherPanelProps) {
     // End with CR (`\r`), the byte the Enter key actually sends — PowerShell's
     // PSReadLine binds CR to AcceptLine (submit) but LF to AddLine (a `>>`
     // continuation line that never runs), so an injected LF would leave the
-    // command stranded on Windows. CR submits on macOS/Linux too.
-    const line = command.endsWith("\r") ? command : `${command}\r`;
+    // command stranded on Windows. CR submits on macOS/Linux too. Strip any
+    // trailing CR/LF first so a caller-supplied newline can't yield `\n\r`.
+    const line = `${command.replace(/[\r\n]+$/, "")}\r`;
     if (resolved.mode === "replacePane") {
       setPaneContent(resolved.tabId, resolved.leafId, { kind: "terminal" });
       writeToTerminal(resolved.leafId, line);
