@@ -258,15 +258,8 @@ describe("on macOS", () => {
     platformMock.isWindows = false;
   });
 
-  it("renders the menu bar without window control buttons", () => {
-    render(<TitleBar />);
-    expect(screen.getByRole("button", { name: "File" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Minimize")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Close")).not.toBeInTheDocument();
-  });
-
-  it("reserves the traffic-light inset", () => {
-    render(<TitleBar />);
-    expect(screen.getByTestId("traffic-light-inset")).toBeInTheDocument();
+  it("renders nothing (native menu owns the menus, TabBar is the first row)", () => {
+    const { container } = render(<TitleBar />);
+    expect(container.firstChild).toBeNull();
   });
 });
