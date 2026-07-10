@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ComponentType } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentType } from "react";
 import { createPortal } from "react-dom";
 import type { LucideProps } from "lucide-react";
 import { useOverlayGuard } from "@/lib/overlayGuard";
@@ -11,6 +11,8 @@ export interface ContextMenuItem {
   onSelect: () => void;
   /** Render in the danger colour (used for destructive actions like Delete). */
   danger?: boolean;
+  /** Greyed and non-clickable (e.g. Copy with nothing selected). */
+  disabled?: boolean;
   /** Group index; a thin divider separates consecutive groups. */
   group?: number;
 }
@@ -30,9 +32,35 @@ interface ContextMenuProps {
  */
 export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ left: x, top: y });
 
   // Rendered only while open, so guard unconditionally to hide the preview webview.
   useOverlayGuard(true);
+
+  // Keep the menu on-screen: a right-click near the right/bottom edge (e.g. the
+  // AI input at the foot of the panel) would otherwise open past the viewport
+  // and get clipped. Measured before paint, so the corrected position is the
+  // first one shown — no visible jump. Flip to the other side of the cursor when
+  // there's room there, otherwise clamp against the edge.
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!el) {
+      return;
+    }
+    const { width, height } = el.getBoundingClientRect();
+    const pad = 8;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = x;
+    let top = y;
+    if (left + width > vw - pad) {
+      left = x - width >= pad ? x - width : Math.max(pad, vw - width - pad);
+    }
+    if (top + height > vh - pad) {
+      top = y - height >= pad ? y - height : Math.max(pad, vh - height - pad);
+    }
+    setPos({ left, top });
+  }, [x, y, items.length]);
 
   useEffect(() => {
     function onPointerDown(event: MouseEvent) {
@@ -63,7 +91,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     <div
       ref={menuRef}
       role="menu"
-      style={{ position: "fixed", left: x, top: y }}
+      style={{ position: "fixed", left: pos.left, top: pos.top }}
       // Portal events still bubble through the REACT tree, so without this a
       // menu-item click would also fire the owning row's onClick (e.g. a
       // source-control row opening its diff tab on "Copy Path").
@@ -85,14 +113,17 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
             <button
               type="button"
               role="menuitem"
+              disabled={item.disabled}
               onClick={() => {
                 onClose();
                 item.onSelect();
               }}
               className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors ${
-                item.danger
-                  ? "text-danger hover:bg-danger/10"
-                  : "text-fg-muted hover:bg-bg hover:text-fg"
+                item.disabled
+                  ? "cursor-default text-fg-muted/40"
+                  : item.danger
+                    ? "text-danger hover:bg-danger/10"
+                    : "text-fg-muted hover:bg-bg hover:text-fg"
               }`}
             >
               <Icon size={14} className="shrink-0" />
