@@ -49,6 +49,7 @@ import { useMacNativeMenu } from "@/lib/useMacNativeMenu";
 import { useForwardStatusListener } from "@/modules/ssh/lib/useForwardStatus";
 import { sftpSessionStore } from "@/modules/ssh/lib/sftpSessionStore";
 import { enforceLogRetention } from "@/modules/logs/lib/sessionLog";
+import { InputContextMenu } from "@/components/InputContextMenu";
 
 const MIN_SIDEBAR = 180;
 const MAX_SIDEBAR = 640;
@@ -689,6 +690,7 @@ function App() {
       <UpdateToast />
       <NotifyToast />
       <SshPromptDialog />
+      <InputContextMenu />
       {pendingCloseAction && (
         <ConfirmDialog
           title={t("editor:closeUnsavedTitle")}

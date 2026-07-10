@@ -1,0 +1,162 @@
+import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Copy, ClipboardPaste, Scissors, TextSelect } from "lucide-react";
+import type { LucideProps } from "lucide-react";
+import type { ComponentType } from "react";
+import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { IS_WINDOWS } from "@/lib/platform";
+import { terminalClipboardText } from "@/modules/terminal/lib/terminalClipboard";
+import {
+  isPlainTextField,
+  isRichEditable,
+  readFieldContext,
+  inputMenuSpecs,
+  replaceRange,
+  getSelectionRange,
+  type EditableField,
+  type FieldContext,
+  type InputMenuAction,
+} from "@/components/inputMenuItems";
+
+interface MenuState {
+  x: number;
+  y: number;
+  field: EditableField;
+  /** Selection captured at right-click time; restored before each action runs. */
+  start: number;
+  end: number;
+  ctx: FieldContext;
+}
+
+const ICONS: Record<InputMenuAction, ComponentType<LucideProps>> = {
+  cut: Scissors,
+  copy: Copy,
+  paste: ClipboardPaste,
+  selectAll: TextSelect,
+};
+
+/**
+ * Windows-only replacement for the WebView2 context menu on plain text fields
+ * (`<input>` / `<textarea>`), and a blanket suppressor of the browser menu
+ * everywhere else. Mounted once near the app root. Non-Windows platforms keep
+ * their richer native menus, so the effect never installs there.
+ *
+ * Actions restore the field's focus and act on the selection captured at
+ * right-click time. Cut/paste edit through `replaceRange`, which dispatches an
+ * `input` event so React's controlled inputs stay in sync. Paste reads via the
+ * fast Tauri clipboard path rather than the slow WebView2 one.
+ */
+export function InputContextMenu() {
+  const { t } = useTranslation();
+  const [menu, setMenu] = useState<MenuState | null>(null);
+
+  useEffect(() => {
+    if (!IS_WINDOWS) {
+      return;
+    }
+    function onContextMenu(e: MouseEvent) {
+      // A component already showed its own menu (tab bar, file tree, git graph,
+      // Monaco, the terminal's Windows menu, …) — leave it be.
+      if (e.defaultPrevented) {
+        return;
+      }
+      const target = e.target;
+      if (isPlainTextField(target)) {
+        e.preventDefault();
+        const { start, end } = getSelectionRange(target);
+        setMenu({
+          x: e.clientX,
+          y: e.clientY,
+          field: target,
+          start,
+          end,
+          ctx: readFieldContext(target),
+        });
+        return;
+      }
+      // contentEditable (Tiptap notes): keep the native menu — its spellcheck and
+      // copy/paste beat a custom one, and driving it would fight the editor.
+      if (isRichEditable(target)) {
+        return;
+      }
+      // Everywhere else: kill the browser menu (Reload / Save as / Inspect …).
+      e.preventDefault();
+    }
+    window.addEventListener("contextmenu", onContextMenu);
+    return () => window.removeEventListener("contextmenu", onContextMenu);
+  }, []);
+
+  const runAction = useCallback(
+    async (action: InputMenuAction, field: EditableField, start: number, end: number) => {
+      switch (action) {
+        case "copy": {
+          const selected = field.value.slice(start, end);
+          if (selected) {
+            void navigator.clipboard.writeText(selected).catch(() => {});
+          }
+          break;
+        }
+        case "cut": {
+          const selected = field.value.slice(start, end);
+          if (selected) {
+            // Delete only after the clipboard write resolves — otherwise a
+            // rejected write (WebView2 focus/permission) would drop the text
+            // with nothing left on the clipboard to paste back.
+            try {
+              await navigator.clipboard.writeText(selected);
+              field.focus();
+              replaceRange(field, start, end, "");
+            } catch {
+              // Keep the selection intact; nothing was copied.
+            }
+          }
+          break;
+        }
+        case "paste": {
+          let text = "";
+          try {
+            text = await terminalClipboardText();
+          } catch {
+            // Fast Tauri path failed — fall back to the (slower) web clipboard
+            // so paste still works rather than silently doing nothing.
+            try {
+              text = await navigator.clipboard.readText();
+            } catch {
+              text = "";
+            }
+          }
+          if (text) {
+            field.focus();
+            replaceRange(field, start, end, text);
+          }
+          break;
+        }
+        case "selectAll": {
+          field.focus();
+          field.select();
+          break;
+        }
+      }
+    },
+    [],
+  );
+
+  if (!menu) {
+    return null;
+  }
+
+  const items: ContextMenuItem[] = inputMenuSpecs(menu.ctx).map((spec) => ({
+    id: spec.action,
+    label: t(`actions.${spec.action}`),
+    icon: ICONS[spec.action],
+    disabled: !spec.enabled,
+    // Select All sits in its own group, divided from the edit actions
+    // (cut/copy/paste) above — the standard OS/browser text-menu layout.
+    group: spec.action === "selectAll" ? 1 : 0,
+    onSelect: () => {
+      void runAction(spec.action, menu.field, menu.start, menu.end);
+    },
+  }));
+
+  return <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />;
+}

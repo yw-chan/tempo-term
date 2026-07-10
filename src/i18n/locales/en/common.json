@@ -140,7 +140,11 @@
     "cancel": "Cancel",
     "save": "Save",
     "confirm": "Confirm",
-    "close": "Close"
+    "close": "Close",
+    "cut": "Cut",
+    "copy": "Copy",
+    "paste": "Paste",
+    "selectAll": "Select All"
   },
   "paneCapacityAlert": "This tab can hold at most 8 panes — close one and try again",
   "osc7Hint": {
