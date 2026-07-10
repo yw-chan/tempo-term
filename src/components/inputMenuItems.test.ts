@@ -5,6 +5,7 @@ import {
   readFieldContext,
   inputMenuSpecs,
   replaceRange,
+  getSelectionRange,
   type FieldContext,
 } from "@/components/inputMenuItems";
 
@@ -20,8 +21,8 @@ describe("isPlainTextField", () => {
     expect(isPlainTextField(document.createElement("textarea"))).toBe(true);
   });
 
-  it("accepts common text-like input types but not checkbox/range", () => {
-    for (const type of ["search", "url", "email", "tel", "password"]) {
+  it("accepts selection-capable text inputs but not checkbox/range", () => {
+    for (const type of ["search", "url", "tel", "password"]) {
       const el = document.createElement("input");
       el.type = type;
       expect(isPlainTextField(el)).toBe(true);
@@ -29,6 +30,14 @@ describe("isPlainTextField", () => {
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     expect(isPlainTextField(checkbox)).toBe(false);
+  });
+
+  it("rejects number/email inputs (they don't support the selection APIs)", () => {
+    for (const type of ["number", "email"]) {
+      const el = document.createElement("input");
+      el.type = type;
+      expect(isPlainTextField(el)).toBe(false);
+    }
   });
 
   it("rejects fields inside rich editors and the terminal", () => {
@@ -84,6 +93,30 @@ describe("readFieldContext", () => {
     const pw = document.createElement("input");
     pw.type = "password";
     expect(readFieldContext(pw).sensitive).toBe(true);
+  });
+});
+
+describe("getSelectionRange", () => {
+  it("returns the live selection for a text field", () => {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = "abcdef";
+    document.body.appendChild(input);
+    input.setSelectionRange(2, 5);
+    expect(getSelectionRange(input)).toEqual({ start: 2, end: 5 });
+    input.remove();
+  });
+
+  it("does not throw on input types without selection support (number)", () => {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.value = "123";
+    document.body.appendChild(input);
+    expect(() => getSelectionRange(input)).not.toThrow();
+    // readFieldContext builds on it, so it must stay crash-free too.
+    expect(() => readFieldContext(input)).not.toThrow();
+    expect(readFieldContext(input).hasSelection).toBe(false);
+    input.remove();
   });
 });
 

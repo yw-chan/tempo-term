@@ -10,17 +10,14 @@
 
 export type EditableField = HTMLInputElement | HTMLTextAreaElement;
 
-/** `<input>` types that have a caret and text selection we can act on. */
-const TEXT_INPUT_TYPES = new Set([
-  "",
-  "text",
-  "search",
-  "url",
-  "email",
-  "tel",
-  "password",
-  "number",
-]);
+/**
+ * `<input>` types that support the text-selection APIs (`selectionStart`,
+ * `setSelectionRange`, …). Deliberately excludes `email` and `number`: those
+ * throw `InvalidStateError` on any selection access in Chromium/WebView2, and
+ * without a caret we can't paste at the right spot — so they fall through to
+ * plain browser-menu suppression and rely on native Ctrl+V.
+ */
+const TEXT_INPUT_TYPES = new Set(["", "text", "search", "url", "tel", "password"]);
 
 /**
  * True when the target is a plain text field we own — a text-like `<input>` or a
@@ -69,9 +66,22 @@ export interface FieldContext {
   sensitive: boolean;
 }
 
+/**
+ * Read a field's selection without throwing. Selection access throws
+ * `InvalidStateError` on input types that don't support it (number, email) in
+ * Chromium/WebView2, so this stays defensive even though `isPlainTextField`
+ * already screens those out.
+ */
+export function getSelectionRange(field: EditableField): { start: number; end: number } {
+  try {
+    return { start: field.selectionStart ?? 0, end: field.selectionEnd ?? 0 };
+  } catch {
+    return { start: 0, end: 0 };
+  }
+}
+
 export function readFieldContext(field: EditableField): FieldContext {
-  const start = field.selectionStart ?? 0;
-  const end = field.selectionEnd ?? 0;
+  const { start, end } = getSelectionRange(field);
   const sensitive = field instanceof HTMLInputElement && field.type === "password";
   return {
     hasSelection: end > start,
@@ -109,7 +119,12 @@ export function replaceRange(
     field.value = next;
   }
   const caret = start + text.length;
-  field.setSelectionRange(caret, caret);
+  try {
+    field.setSelectionRange(caret, caret);
+  } catch {
+    // Input types without selection support (number, email) throw here; the
+    // value change and the input event below are what matter.
+  }
   field.dispatchEvent(new Event("input", { bubbles: true }));
 }
 

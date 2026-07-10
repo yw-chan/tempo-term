@@ -12,6 +12,7 @@ import {
   readFieldContext,
   inputMenuSpecs,
   replaceRange,
+  getSelectionRange,
   type EditableField,
   type FieldContext,
   type InputMenuAction,
@@ -62,12 +63,13 @@ export function InputContextMenu() {
       const target = e.target;
       if (isPlainTextField(target)) {
         e.preventDefault();
+        const { start, end } = getSelectionRange(target);
         setMenu({
           x: e.clientX,
           y: e.clientY,
           field: target,
-          start: target.selectionStart ?? 0,
-          end: target.selectionEnd ?? 0,
+          start,
+          end,
           ctx: readFieldContext(target),
         });
         return;
@@ -90,16 +92,23 @@ export function InputContextMenu() {
         case "copy": {
           const selected = field.value.slice(start, end);
           if (selected) {
-            void navigator.clipboard.writeText(selected);
+            void navigator.clipboard.writeText(selected).catch(() => {});
           }
           break;
         }
         case "cut": {
           const selected = field.value.slice(start, end);
           if (selected) {
-            void navigator.clipboard.writeText(selected);
-            field.focus();
-            replaceRange(field, start, end, "");
+            // Delete only after the clipboard write resolves — otherwise a
+            // rejected write (WebView2 focus/permission) would drop the text
+            // with nothing left on the clipboard to paste back.
+            try {
+              await navigator.clipboard.writeText(selected);
+              field.focus();
+              replaceRange(field, start, end, "");
+            } catch {
+              // Keep the selection intact; nothing was copied.
+            }
           }
           break;
         }
@@ -108,7 +117,13 @@ export function InputContextMenu() {
           try {
             text = await terminalClipboardText();
           } catch {
-            text = "";
+            // Fast Tauri path failed — fall back to the (slower) web clipboard
+            // so paste still works rather than silently doing nothing.
+            try {
+              text = await navigator.clipboard.readText();
+            } catch {
+              text = "";
+            }
           }
           if (text) {
             field.focus();
@@ -135,8 +150,8 @@ export function InputContextMenu() {
     label: t(`actions.${spec.action}`),
     icon: ICONS[spec.action],
     disabled: !spec.enabled,
-    // paste is the only group boundary — separate it from cut/copy above and
-    // select-all below reads fine in one group.
+    // Select All sits in its own group, divided from the edit actions
+    // (cut/copy/paste) above — the standard OS/browser text-menu layout.
     group: spec.action === "selectAll" ? 1 : 0,
     onSelect: () => {
       void runAction(spec.action, menu.field, menu.start, menu.end);
