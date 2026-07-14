@@ -91,7 +91,8 @@
     "minimize": "Minimize",
     "maximize": "Maximize",
     "restore": "Restore",
-    "close": "Close"
+    "close": "Close",
+    "moreMenus": "More menus"
   },
   "menuBar": {
     "file": "File",

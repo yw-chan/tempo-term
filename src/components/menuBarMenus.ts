@@ -188,3 +188,33 @@ export function buildMenus(ctx: MenuContext): MenuDef[] {
     },
   ];
 }
+
+/**
+ * How many leading menu-bar buttons fit in `available` px. Returns the full
+ * count when they all fit (no overflow button needed); otherwise fits as many as
+ * possible while reserving `moreWidth` px for the `[…]` overflow button, so the
+ * rest can collapse into it. Widths are measured from the rendered buttons, so
+ * this stays correct under browser zoom and locale changes without hard-coding
+ * any sizes. Degenerate inputs (no measurement yet, e.g. before first layout or
+ * in a non-layout test env where every width is 0) return the full count, so the
+ * bar renders complete rather than empty.
+ */
+export function computeVisibleCount(
+  buttonWidths: number[],
+  moreWidth: number,
+  available: number,
+): number {
+  const total = buttonWidths.reduce((sum, w) => sum + w, 0);
+  if (!(available > 0) || total <= available) {
+    return buttonWidths.length;
+  }
+  let used = 0;
+  let count = 0;
+  for (const width of buttonWidths) {
+    // Every kept button must still leave room for the […] button beside it.
+    if (used + width + moreWidth > available) break;
+    used += width;
+    count += 1;
+  }
+  return count;
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMenus, type MenuContext } from "./menuBarMenus";
+import { buildMenus, computeVisibleCount, type MenuContext } from "./menuBarMenus";
 import { DEFAULT_SIDEBAR_ORDER, type SidebarView } from "@/stores/uiStore";
 
 const baseCtx: MenuContext = {
@@ -83,5 +83,29 @@ describe("buildMenus", () => {
       expect(resolve(en, key), `en missing ${key}`).toBeTruthy();
       expect(resolve(zh, key), `zh-Hant missing ${key}`).toBeTruthy();
     }
+  });
+});
+
+describe("computeVisibleCount", () => {
+  it("shows every button when they all fit (no overflow needed)", () => {
+    // total 150 ≤ 200 → all six-ish fit, returns the full count.
+    expect(computeVisibleCount([50, 50, 50], 30, 200)).toBe(3);
+  });
+
+  it("reserves room for the […] button and collapses the rest", () => {
+    // total 300 > 200, so the […] button (30) must fit alongside kept buttons:
+    // 50+50+50 = 150, +30 = 180 ≤ 200; a 4th would be 200+30 > 200 → 3 visible.
+    expect(computeVisibleCount([50, 50, 50, 50, 50, 50], 30, 200)).toBe(3);
+  });
+
+  it("can collapse everything into […] when even one button won't fit beside it", () => {
+    // 100 + 40 = 140 > 120 → 0 visible, all six go under the […] button.
+    expect(computeVisibleCount([100, 100], 40, 120)).toBe(0);
+  });
+
+  it("returns the full count for unmeasured widths (0), so the bar never renders empty", () => {
+    // Before the first layout pass (and in non-layout test envs) every width and
+    // the available width are 0 — treat that as 'everything fits'.
+    expect(computeVisibleCount([0, 0, 0, 0, 0, 0], 0, 0)).toBe(6);
   });
 });

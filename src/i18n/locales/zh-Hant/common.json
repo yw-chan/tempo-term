@@ -91,7 +91,8 @@
     "minimize": "最小化",
     "maximize": "最大化",
     "restore": "還原",
-    "close": "關閉"
+    "close": "關閉",
+    "moreMenus": "更多選單"
   },
   "menuBar": {
     "file": "檔案",
