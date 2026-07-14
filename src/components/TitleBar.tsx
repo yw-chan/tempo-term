@@ -1,7 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Ref,
+} from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { ChevronRight, Minus, Square, X } from "lucide-react";
+import { ChevronRight, Ellipsis, Minus, Square, X } from "lucide-react";
 import { Tooltip } from "@/components/Tooltip";
 import { useOverlayGuard } from "@/lib/overlayGuard";
 import { IS_WINDOWS } from "@/lib/platform";
@@ -14,10 +21,22 @@ import {
 } from "@/lib/window";
 import {
   buildMenus,
+  computeVisibleCount,
   executeMenuAction,
   getMenuContext,
+  type MenuContext,
   type MenuItemDef,
 } from "@/components/menuBarMenus";
+
+/** Width-relevant classes for a top-level menu-bar button. Shared by the real
+ *  buttons, the […] overflow button, and the hidden measurement row so all three
+ *  size identically and the fit math stays honest. State (open/hover) colors are
+ *  appended per-button and don't affect width. */
+const MENU_BUTTON_CLASS =
+  "flex h-full shrink-0 items-center whitespace-nowrap px-2 text-[13px] transition-colors min-[820px]:px-3";
+
+/** Sentinel `openId` for the […] overflow dropdown (vs a real menu's id). */
+const OVERFLOW_ID = "__overflow__";
 
 /** Overlapping-squares "restore" glyph; lucide has no direct equivalent. */
 function RestoreIcon({ size = 11 }: { size?: number }) {
@@ -119,46 +138,138 @@ function MenuItemRow({
 // crosses sibling rows first) has time to land before the flyout disappears.
 const SUBMENU_CLOSE_DELAY_MS = 180;
 
+// A submenu narrower than this is assumed to fit; used only to decide which side
+// to open on, so a slight over-estimate just biases toward flipping left.
+const ESTIMATED_SUBMENU_WIDTH = 240;
+
+/**
+ * A dropdown panel of menu rows that recursively renders any item's `submenu` as
+ * a nested flyout — the cascade behind the […] overflow (and View → Sidebar
+ * Panel). Each submenu opens to the right when it fits, otherwise flips left, so
+ * it never runs off the viewport edge. Every level owns its hover-close timer:
+ * crossing sibling rows toward a flyout schedules a close; entering the child
+ * flyout cancels the parent's.
+ */
+function MenuFlyout({
+  items,
+  ctx,
+  style,
+  onAction,
+  onMouseEnter,
+  rootRef,
+  minWidthClass = "min-w-[200px]",
+}: {
+  items: MenuItemDef[];
+  ctx: MenuContext;
+  style: CSSProperties;
+  onAction: (item: MenuItemDef) => void;
+  onMouseEnter?: () => void;
+  rootRef?: Ref<HTMLDivElement>;
+  minWidthClass?: string;
+}) {
+  const [openSubId, setOpenSubId] = useState<string | null>(null);
+  const [sub, setSub] = useState<{
+    side: "left" | "right";
+    left: number;
+    right: number;
+    y: number;
+  } | null>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearClose = () => {
+    if (closeTimer.current !== null) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+  const scheduleClose = () => {
+    clearClose();
+    closeTimer.current = setTimeout(() => {
+      closeTimer.current = null;
+      setOpenSubId(null);
+    }, SUBMENU_CLOSE_DELAY_MS);
+  };
+  useEffect(() => clearClose, []);
+
+  const shortcutHint = (s?: { mac: string; win: string }) =>
+    s ? (IS_WINDOWS ? s.win : s.mac) : undefined;
+
+  return (
+    <div
+      ref={rootRef}
+      role="menu"
+      onMouseEnter={onMouseEnter}
+      style={style}
+      className={`z-[200] ${minWidthClass} overflow-hidden rounded-md border border-border-strong bg-bg-elevated py-1 text-[13px] shadow-lg`}
+    >
+      {items.map((item, index) => {
+        const previous = items[index - 1];
+        const newGroup = previous !== undefined && previous.group !== item.group;
+        const disabled = item.disabled?.(ctx) ?? false;
+        const isSubmenuOpen = openSubId === item.id;
+        return (
+          <div key={item.id} className="relative">
+            {newGroup && <div className="my-1 h-px bg-border" />}
+            <MenuItemRow
+              item={item}
+              disabled={disabled}
+              shortcutHint={shortcutHint(item.shortcut)}
+              isSubmenuOpen={isSubmenuOpen}
+              // Submenu parents open on hover (below); a click on them is a no-op.
+              onSelect={() => {
+                if (!disabled && !item.submenu) onAction(item);
+              }}
+              onSubmenuEnter={(rect) => {
+                clearClose();
+                // Open to the right of the row when it fits; otherwise flip left
+                // so the flyout never runs off the viewport's right edge.
+                const opensRight =
+                  window.innerWidth - rect.right >= ESTIMATED_SUBMENU_WIDTH;
+                setSub({
+                  side: opensRight ? "right" : "left",
+                  left: rect.right,
+                  right: window.innerWidth - rect.left,
+                  y: rect.top,
+                });
+                setOpenSubId(item.id);
+              }}
+              onSiblingEnter={scheduleClose}
+            />
+            {item.submenu && isSubmenuOpen && sub && (
+              <MenuFlyout
+                items={item.submenu}
+                ctx={ctx}
+                onAction={onAction}
+                onMouseEnter={clearClose}
+                style={
+                  sub.side === "right"
+                    ? { position: "fixed", left: sub.left, top: sub.y }
+                    : { position: "fixed", right: sub.right, top: sub.y }
+                }
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function WindowMenuBar() {
   const { t } = useTranslation();
   const [openId, setOpenId] = useState<string | null>(null);
-  const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
-  const [submenuId, setSubmenuId] = useState<string | null>(null);
-  const [submenuAnchor, setSubmenuAnchor] = useState<{ x: number; y: number } | null>(null);
+  // Anchor for the open dropdown, pinned to the button's bottom-left. Every menu
+  // (including […]) sits after the brand with the drag region and window controls
+  // to its right, so it always has room to open rightward from its left edge.
+  const [anchor, setAnchor] = useState<{ left: number; y: number } | null>(null);
   const [isMaximized, setIsMaximized] = useState(false);
+  // How many leading menus fit; the rest collapse into the […] button. Starts
+  // "all" so the first paint is complete, then the measurement effect clamps it.
+  const [visibleCount, setVisibleCount] = useState(Number.MAX_SAFE_INTEGER);
   const barRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const submenuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function clearSubmenuCloseTimer() {
-    if (submenuCloseTimer.current !== null) {
-      clearTimeout(submenuCloseTimer.current);
-      submenuCloseTimer.current = null;
-    }
-  }
-
-  // Close immediately: used for every close that isn't the sibling-hover
-  // tunneling case below (item selected, menu dismissed, menu switched).
-  function closeSubmenuNow() {
-    clearSubmenuCloseTimer();
-    setSubmenuId(null);
-  }
-
-  // Hovering a sibling row schedules the close instead of firing it
-  // immediately, so the cursor has SUBMENU_CLOSE_DELAY_MS to reach the
-  // flyout (entering the submenu's own row again, or the flyout itself,
-  // cancels the pending close — see the handlers below).
-  function scheduleSubmenuClose() {
-    clearSubmenuCloseTimer();
-    submenuCloseTimer.current = setTimeout(() => {
-      submenuCloseTimer.current = null;
-      setSubmenuId(null);
-    }, SUBMENU_CLOSE_DELAY_MS);
-  }
-
-  // Timer must not outlive the component, and must not fire against a menu
-  // that's already been torn down and remounted.
-  useEffect(() => clearSubmenuCloseTimer, []);
+  const measureRef = useRef<HTMLDivElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
 
   // The native preview webview floats above all DOM, so hide it while a menu is
   // open or it would cover the dropdown (same guard ContextMenu uses).
@@ -183,14 +294,33 @@ function WindowMenuBar() {
   const ctx = getMenuContext(isMaximized);
   const menus = buildMenus(ctx);
 
-  const shortcutHint = (s?: { mac: string; win: string }) =>
-    s ? (IS_WINDOWS ? s.win : s.mac) : undefined;
+  // Fit the menu buttons to the space between the brand and the window controls,
+  // collapsing whatever doesn't fit into the […] button. Widths are measured
+  // from a hidden row that mirrors the real buttons, so the math tracks the live
+  // font/zoom/locale metrics instead of hard-coded sizes. Re-runs whenever the
+  // bar's width (window resize, zoom) or the measured row (locale) changes.
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    const measure = measureRef.current;
+    if (!bar || !measure) return;
+    const recompute = () => {
+      const items = Array.from(measure.children) as HTMLElement[];
+      // The measurement row is [one span per menu…, the […] button].
+      const widths = items.slice(0, menus.length).map((el) => el.getBoundingClientRect().width);
+      const moreWidth = items[menus.length]?.getBoundingClientRect().width ?? 0;
+      setVisibleCount(computeVisibleCount(widths, moreWidth, bar.clientWidth));
+    };
+    recompute();
+    const observer = new ResizeObserver(recompute);
+    observer.observe(bar);
+    observer.observe(measure);
+    return () => observer.disconnect();
+  }, [menus.length]);
 
   const onItemSelect = (item: MenuItemDef) => {
     if (item.disabled?.(ctx) || !item.action) return;
     executeMenuAction(item.action);
     setOpenId(null);
-    closeSubmenuNow();
   };
 
   // Close on outside pointer / Escape / resize. The menu-bar buttons count as
@@ -204,17 +334,14 @@ function WindowMenuBar() {
         return;
       }
       setOpenId(null);
-      closeSubmenuNow();
     }
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setOpenId(null);
-        closeSubmenuNow();
       }
     }
     function onResize() {
       setOpenId(null);
-      closeSubmenuNow();
     }
     document.addEventListener("mousedown", onPointerDown, true);
     document.addEventListener("keydown", onKeyDown, true);
@@ -228,16 +355,54 @@ function WindowMenuBar() {
 
   function openFrom(el: HTMLElement, id: string) {
     const rect = el.getBoundingClientRect();
-    setAnchor({ x: rect.left, y: rect.bottom });
+    setAnchor({ left: rect.left, y: rect.bottom });
     setOpenId(id);
-    closeSubmenuNow();
   }
 
+  // Fixed-position style pinning a dropdown to the button's bottom-left.
+  const anchorStyle = (): CSSProperties => ({
+    position: "fixed",
+    left: anchor?.left,
+    top: anchor?.y,
+  });
+
   const activeMenu = menus.find((m) => m.id === openId) ?? null;
+  const visibleMenus = menus.slice(0, visibleCount);
+  const overflowMenus = menus.slice(visibleCount);
+  // The […] dropdown is just a cascade: each collapsed menu becomes a submenu
+  // parent, so hovering it flies its items out to the side instead of replacing
+  // the list. Reuses the same MenuFlyout recursion as the normal dropdowns.
+  const overflowItems: MenuItemDef[] = overflowMenus.map((menu) => ({
+    id: menu.id,
+    labelKey: menu.labelKey,
+    group: 0,
+    submenu: menu.items,
+  }));
 
   return (
-    <div ref={barRef} className="flex h-full items-center">
-      {menus.map((menu) => (
+    // flex-1 + min-w-0: the bar takes the space between the brand and the window
+    // controls and may shrink below its content; overflow-hidden hides the
+    // measurement row and clips any transient overflow during a resize.
+    <div ref={barRef} className="relative flex h-full min-w-0 flex-1 items-center overflow-hidden">
+      {/* Hidden measurement row: every menu label plus the […] button, laid out
+          exactly like the real ones (same MENU_BUTTON_CLASS) but not painted, so
+          getBoundingClientRect gives their natural widths regardless of how many
+          are currently shown — and re-measures on zoom/locale via ResizeObserver. */}
+      <div
+        ref={measureRef}
+        aria-hidden
+        className="pointer-events-none invisible absolute left-0 top-0 flex h-full items-center"
+      >
+        {menus.map((menu) => (
+          <span key={menu.id} className={MENU_BUTTON_CLASS}>
+            {t(menu.labelKey)}
+          </span>
+        ))}
+        <span className={MENU_BUTTON_CLASS}>
+          <Ellipsis size={16} />
+        </span>
+      </div>
+      {visibleMenus.map((menu) => (
         <button
           key={menu.id}
           type="button"
@@ -250,7 +415,6 @@ function WindowMenuBar() {
           onClick={(e) => {
             if (openId === menu.id) {
               setOpenId(null);
-              closeSubmenuNow();
             } else {
               openFrom(e.currentTarget, menu.id);
             }
@@ -260,7 +424,7 @@ function WindowMenuBar() {
           onMouseEnter={(e) => {
             if (openId !== null && openId !== menu.id) openFrom(e.currentTarget, menu.id);
           }}
-          className={`flex h-full items-center px-3 text-[13px] transition-colors ${
+          className={`${MENU_BUTTON_CLASS} ${
             openId === menu.id
               ? "bg-bg-elevated text-fg"
               : "text-fg-muted hover:bg-bg-elevated hover:text-fg"
@@ -269,67 +433,62 @@ function WindowMenuBar() {
           {t(menu.labelKey)}
         </button>
       ))}
+      {overflowMenus.length > 0 && (
+        <button
+          ref={moreButtonRef}
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={openId === OVERFLOW_ID}
+          aria-label={t("titleBar.moreMenus")}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => {
+            if (openId === OVERFLOW_ID) {
+              setOpenId(null);
+            } else {
+              openFrom(e.currentTarget, OVERFLOW_ID);
+            }
+          }}
+          onMouseEnter={(e) => {
+            if (openId !== null && openId !== OVERFLOW_ID)
+              openFrom(e.currentTarget, OVERFLOW_ID);
+          }}
+          className={`${MENU_BUTTON_CLASS} ${
+            openId === OVERFLOW_ID
+              ? "bg-bg-elevated text-fg"
+              : "text-fg-muted hover:bg-bg-elevated hover:text-fg"
+          }`}
+        >
+          <Ellipsis size={16} />
+        </button>
+      )}
+      {/* The leftover width stays a drag region so the window is still movable
+          from the empty stretch of the title bar. */}
+      <div data-tauri-drag-region="deep" className="h-full flex-1" />
+      {openId === OVERFLOW_ID &&
+        anchor &&
+        createPortal(
+          <MenuFlyout
+            rootRef={menuRef}
+            items={overflowItems}
+            ctx={ctx}
+            style={anchorStyle()}
+            onAction={onItemSelect}
+            // The list holds only menu names — keep it narrow so it sits snug
+            // under the […] button.
+            minWidthClass="min-w-[9rem]"
+          />,
+          document.body,
+        )}
       {activeMenu &&
         anchor &&
         createPortal(
-          <div
-            ref={menuRef}
-            role="menu"
-            style={{ position: "fixed", left: anchor.x, top: anchor.y }}
-            className="z-[200] min-w-[220px] overflow-hidden rounded-md border border-border-strong bg-bg-elevated py-1 text-[13px] shadow-lg"
-          >
-            {activeMenu.items.map((item, index) => {
-              const previous = activeMenu.items[index - 1];
-              const newGroup = previous !== undefined && previous.group !== item.group;
-              const disabled = item.disabled?.(ctx) ?? false;
-              const isSubmenuOpen = submenuId === item.id;
-              return (
-                <div key={item.id} className="relative">
-                  {newGroup && <div className="my-1 h-px bg-border" />}
-                  <MenuItemRow
-                    item={item}
-                    disabled={disabled}
-                    shortcutHint={shortcutHint(item.shortcut)}
-                    isSubmenuOpen={isSubmenuOpen}
-                    onSelect={() => onItemSelect(item)}
-                    onSubmenuEnter={(rect) => {
-                      // Re-entering the row that owns the open flyout (or
-                      // entering a different submenu row, handled the same
-                      // way) is itself a cancel: there is no pending close to
-                      // honor once the cursor is back on a submenu row.
-                      clearSubmenuCloseTimer();
-                      setSubmenuAnchor({ x: rect.right, y: rect.top });
-                      setSubmenuId(item.id);
-                    }}
-                    onSiblingEnter={scheduleSubmenuClose}
-                  />
-                  {item.submenu && isSubmenuOpen && submenuAnchor && (
-                    <div
-                      role="menu"
-                      // The cursor reaching the flyout — even via a row deep
-                      // inside it that has no handler of its own — cancels
-                      // any close scheduled by the sibling-row it crossed to
-                      // get here.
-                      onMouseEnter={clearSubmenuCloseTimer}
-                      style={{ position: "fixed", left: submenuAnchor.x, top: submenuAnchor.y }}
-                      className="z-[210] min-w-[180px] overflow-hidden rounded-md border border-border-strong bg-bg-elevated py-1 text-[13px] shadow-lg"
-                    >
-                      {item.submenu.map((child) => (
-                        <MenuItemRow
-                          key={child.id}
-                          item={child}
-                          disabled={child.disabled?.(ctx) ?? false}
-                          shortcutHint={shortcutHint(child.shortcut)}
-                          isSubmenuOpen={false}
-                          onSelect={() => onItemSelect(child)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>,
+          <MenuFlyout
+            rootRef={menuRef}
+            items={activeMenu.items}
+            ctx={ctx}
+            style={anchorStyle()}
+            onAction={onItemSelect}
+          />,
           document.body,
         )}
     </div>
@@ -373,17 +532,21 @@ export function TitleBar() {
 
   return (
     <div className="flex h-8 shrink-0 items-center border-b border-border bg-bg-inset">
-      {/* Brand mark. Kept a drag region so the window can be moved from here;
-          the img/span aren't interactive, so dragging still works. */}
+      {/* Brand mark, and the window's drag handle. "deep" (not a bare
+          data-tauri-drag-region) makes clicks anywhere in the subtree drag the
+          window — a bare attribute is "self mode" and only drags on direct hits
+          of this div, so grabbing the icon or the title text (both children)
+          would do nothing. shrink-0 keeps it from being squeezed by the menu. */}
       <div
-        data-tauri-drag-region
-        className="flex h-full select-none items-center gap-1.5 pl-2.5 pr-1"
+        data-tauri-drag-region="deep"
+        className="flex h-full shrink-0 select-none items-center gap-1.5 pl-2.5 pr-1"
       >
         <img src="/icon.png" alt="" className="h-4 w-4 rounded-sm" draggable={false} />
-        <span className="text-[13px] font-semibold text-fg">{t("appName")}</span>
+        <span className="whitespace-nowrap text-[13px] font-semibold text-fg">
+          {t("appName")}
+        </span>
       </div>
       <WindowMenuBar />
-      <div data-tauri-drag-region className="h-full flex-1" />
       <div className="flex h-full shrink-0 items-center">
         <Tooltip label={t("titleBar.minimize")} side="bottom">
           <button

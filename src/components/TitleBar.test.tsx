@@ -124,6 +124,15 @@ describe("TitleBar", () => {
     expect(closeWindow).toHaveBeenCalledOnce();
   });
 
+  it("marks the brand mark as a deep drag region so the icon and title drag the window", () => {
+    render(<TitleBar />);
+    const brand = screen.getByText("TempoTerm").closest("[data-tauri-drag-region]");
+    // "deep" (not a bare attribute): a bare data-tauri-drag-region is "self
+    // mode" and only drags on direct hits of the div, so grabbing the child
+    // icon or title text would do nothing. See Tauri's drag.js.
+    expect(brand).toHaveAttribute("data-tauri-drag-region", "deep");
+  });
+
   it("shows the restore control once the window reports it is maximized", async () => {
     isWindowMaximized.mockResolvedValue(true);
     render(<TitleBar />);
@@ -172,6 +181,45 @@ describe("TitleBar", () => {
     render(<TitleBar />);
     for (const label of ["File", "Edit", "View", "Terminal", "Window", "Help"]) {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("collapses menus that don't fit into a […] button and reveals them on demand", () => {
+    // jsdom does no layout, so force the measurements the fit math reads: every
+    // button/label measures 100px wide and the bar is only 250px — so just the
+    // first menu fits beside the 100px […] button; the rest collapse.
+    const rectSpy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
+      width: 100,
+      height: 32,
+      top: 0,
+      left: 0,
+      right: 100,
+      bottom: 32,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+    const cwDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth");
+    Object.defineProperty(Element.prototype, "clientWidth", { configurable: true, get: () => 250 });
+    try {
+      render(<TitleBar />);
+      // File fits; Window has collapsed out of the bar into the overflow button.
+      expect(screen.getByRole("button", { name: "File" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Window" })).toBeNull();
+      const more = screen.getByLabelText("More menus");
+
+      // Opening […] lists the collapsed menus; hovering one cascades its items
+      // out to the side (rather than stacking a dropdown over the list)…
+      fireEvent.click(more);
+      fireEvent.mouseEnter(screen.getByRole("menuitem", { name: "Window" }));
+      // …and choosing an item from that cascade still runs its action.
+      fireEvent.click(screen.getByRole("menuitem", { name: /Toggle Full Screen/ }));
+      expect(toggleFullscreenWindow).toHaveBeenCalledOnce();
+    } finally {
+      rectSpy.mockRestore();
+      if (cwDescriptor) {
+        Object.defineProperty(Element.prototype, "clientWidth", cwDescriptor);
+      }
     }
   });
 
