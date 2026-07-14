@@ -258,15 +258,10 @@ function MenuFlyout({
 function WindowMenuBar() {
   const { t } = useTranslation();
   const [openId, setOpenId] = useState<string | null>(null);
-  // `align` picks which edge the dropdown is pinned to: left-side menus grow
-  // rightward from their left edge; the right-side […] button grows leftward from
-  // its right edge, so its dropdown never spills over the window controls.
-  const [anchor, setAnchor] = useState<{
-    left: number;
-    right: number;
-    y: number;
-    align: "left" | "right";
-  } | null>(null);
+  // Anchor for the open dropdown, pinned to the button's bottom-left. Every menu
+  // (including […]) sits after the brand with the drag region and window controls
+  // to its right, so it always has room to open rightward from its left edge.
+  const [anchor, setAnchor] = useState<{ left: number; y: number } | null>(null);
   const [isMaximized, setIsMaximized] = useState(false);
   // How many leading menus fit; the rest collapse into the […] button. Starts
   // "all" so the first paint is complete, then the measurement effect clamps it.
@@ -358,22 +353,18 @@ function WindowMenuBar() {
     };
   }, [openId]);
 
-  function openFrom(el: HTMLElement, id: string, align: "left" | "right" = "left") {
+  function openFrom(el: HTMLElement, id: string) {
     const rect = el.getBoundingClientRect();
-    setAnchor({
-      left: rect.left,
-      right: window.innerWidth - rect.right,
-      y: rect.bottom,
-      align,
-    });
+    setAnchor({ left: rect.left, y: rect.bottom });
     setOpenId(id);
   }
 
-  // Fixed-position style pinning a dropdown to the anchored edge.
-  const anchorStyle = (): CSSProperties =>
-    anchor?.align === "right"
-      ? { position: "fixed", right: anchor.right, top: anchor.y }
-      : { position: "fixed", left: anchor?.left, top: anchor?.y };
+  // Fixed-position style pinning a dropdown to the button's bottom-left.
+  const anchorStyle = (): CSSProperties => ({
+    position: "fixed",
+    left: anchor?.left,
+    top: anchor?.y,
+  });
 
   const activeMenu = menus.find((m) => m.id === openId) ?? null;
   const visibleMenus = menus.slice(0, visibleCount);
