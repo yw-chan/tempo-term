@@ -279,18 +279,19 @@ fn fnm_root(
     if windows {
         return localappdata.map(|l| PathBuf::from(l).join("fnm"));
     }
-    let home = home?;
+    // Only the home-based defaults need `home`; a set XDG_DATA_HOME must still
+    // resolve when HOME is absent (a stripped GUI launch can hand us neither).
     if macos {
-        Some(
-            PathBuf::from(home)
+        home.map(|h| {
+            PathBuf::from(h)
                 .join("Library")
                 .join("Application Support")
-                .join("fnm"),
-        )
+                .join("fnm")
+        })
     } else if let Some(xdg) = xdg_data_home {
         Some(PathBuf::from(xdg).join("fnm"))
     } else {
-        Some(PathBuf::from(home).join(".local").join("share").join("fnm"))
+        home.map(|h| PathBuf::from(h).join(".local").join("share").join("fnm"))
     }
 }
 
@@ -321,7 +322,9 @@ fn read_fnm_node_versions(root: &Path) -> Vec<String> {
     };
     entries
         .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.path().is_dir())
+        // file_type() is cached from the readdir entry on most platforms, so it
+        // avoids the per-entry PathBuf alloc + stat that entry.path().is_dir() costs.
+        .filter(|entry| entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
         .filter_map(|entry| entry.file_name().into_string().ok())
         .filter(|name| !name.starts_with('.'))
         .collect()
@@ -736,6 +739,10 @@ mod tests {
         assert_eq!(xdg, Some(PathBuf::from("/home/me/.xdg/fnm")));
         let linux = fnm_root(None, Some("/home/me"), None, None, false, false);
         assert_eq!(linux, Some(PathBuf::from("/home/me/.local/share/fnm")));
+        // A set XDG_DATA_HOME must still resolve when HOME is absent (a stripped
+        // GUI launch can hand us no HOME) — it must not fall through to None.
+        let xdg_no_home = fnm_root(None, None, None, Some("/data/.xdg"), false, false);
+        assert_eq!(xdg_no_home, Some(PathBuf::from("/data/.xdg/fnm")));
     }
 
     #[test]
