@@ -125,6 +125,47 @@ describe("computeGraphLayout colouring", () => {
     expect(layouts["z"].colorIndex).not.toBe(layouts["x"].colorIndex);
   });
 
+  it("keeps a fork off the trunk off the trunk's colour even after the palette wraps", () => {
+    // A trunk with seven short side branches that each merge in and immediately
+    // root (freeing their lane). Every fork claims the next palette colour, so
+    // by the seventh a naive per-claim counter would wrap back onto the trunk's
+    // colour (0) — the exact "a branch off the red trunk is also red" bug. The
+    // fork must instead skip the still-active trunk colour.
+    const commits: CommitNode[] = [];
+    for (let i = 1; i <= 7; i++) {
+      const trunkParent = i < 7 ? `m${i + 1}` : "t";
+      commits.push(commit(`m${i}`, [trunkParent, `s${i}`]));
+      commits.push(commit(`s${i}`, []));
+    }
+    commits.push(commit("t", []));
+    const { layouts } = computeGraphLayout(commits);
+
+    // The trunk stays on colour 0 the whole way down.
+    expect(layouts["m7"].colorIndex).toBe(0);
+    // A naive counter would give the seventh fork 7 % 7 === 0 (== trunk); it
+    // must not collide with the trunk it branches from.
+    expect(layouts["s7"].colorIndex).not.toBe(layouts["m7"].colorIndex);
+  });
+
+  it("gives every lane of an octopus merge a distinct colour", () => {
+    // o merges three roots, so three lanes are active on the same row.
+    const commits = [
+      commit("o", ["a", "b", "c"]),
+      commit("a", []),
+      commit("b", []),
+      commit("c", []),
+    ];
+    const { layouts } = computeGraphLayout(commits);
+
+    // o's lane (followed by first parent a), b and c are all concurrent.
+    const colors = new Set([
+      layouts["o"].colorIndex,
+      layouts["b"].colorIndex,
+      layouts["c"].colorIndex,
+    ]);
+    expect(colors.size).toBe(3);
+  });
+
   it("colours a merge bend by the merged branch, not the trunk", () => {
     const commits = [commit("m", ["a", "b"]), commit("b", ["a"]), commit("a", [])];
     const { layouts, edges } = computeGraphLayout(commits);
