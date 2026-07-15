@@ -97,8 +97,11 @@ export function computeGraphLayout(
   // cycling in palette order when nothing forces a different pick, so adjacent
   // fresh branches still look distinct.
   let nextColor = 0;
+  // Reused across every pickColor() call (cleared each time) so laying out a
+  // large repo doesn't allocate a fresh Set per lane claim.
+  const used = new Set<number>();
   const pickColor = (): number => {
-    const used = new Set<number>();
+    used.clear();
     for (let idx = 0; idx < activeLanes.length; idx++) {
       if (activeLanes[idx] !== "") {
         used.add(laneColors[idx]);
