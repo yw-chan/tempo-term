@@ -279,7 +279,11 @@ fn fnm_root(
         return Some(PathBuf::from(dir));
     }
     if windows {
-        return appdata.map(|a| PathBuf::from(a).join("fnm"));
+        // APPDATA is normally set, but a stripped GUI/service env can drop it;
+        // fall back to rebuilding the Roaming path from home (USERPROFILE).
+        return appdata
+            .map(|a| PathBuf::from(a).join("fnm"))
+            .or_else(|| home.map(|h| PathBuf::from(h).join("AppData").join("Roaming").join("fnm")));
     }
     // Only the home-based defaults need `home`; a set XDG_DATA_HOME must still
     // resolve when HOME is absent (a stripped GUI launch can hand us neither).
@@ -731,6 +735,13 @@ mod tests {
         let appdata = r"C:\Users\me\AppData\Roaming";
         let win = fnm_root(None, Some(r"C:\Users\me"), Some(appdata), None, true, false);
         assert_eq!(win, Some(PathBuf::from(appdata).join("fnm")));
+        // Windows with APPDATA missing falls back to home\AppData\Roaming\fnm
+        // (a stripped launch may drop APPDATA but keep USERPROFILE).
+        let win_fallback = fnm_root(None, Some(r"C:\Users\me"), None, None, true, false);
+        assert_eq!(
+            win_fallback,
+            Some(PathBuf::from(r"C:\Users\me").join("AppData").join("Roaming").join("fnm"))
+        );
         // macOS: ~/Library/Application Support/fnm
         let mac = fnm_root(None, Some("/Users/me"), None, None, false, true);
         assert_eq!(
