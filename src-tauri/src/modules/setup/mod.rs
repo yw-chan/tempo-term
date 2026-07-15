@@ -5,7 +5,7 @@
 //! one-line change; version comparison is a pure function for easy testing.
 
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -260,6 +260,73 @@ fn read_nvm_node_versions(home: Option<&str>) -> Vec<String> {
         .collect()
 }
 
+/// fnm's data root: `$FNM_DIR` when set, else the per-OS default —
+/// `%LOCALAPPDATA%\fnm` (Windows), `~/Library/Application Support/fnm` (macOS),
+/// or `$XDG_DATA_HOME/fnm` else `~/.local/share/fnm` (other Unix). fnm lets the
+/// root be relocated via `$FNM_DIR`, so the default alone isn't enough. Pure: the
+/// OS is passed in so both default branches are unit-tested on the macOS runner.
+fn fnm_root(
+    fnm_dir: Option<&str>,
+    home: Option<&str>,
+    localappdata: Option<&str>,
+    xdg_data_home: Option<&str>,
+    windows: bool,
+    macos: bool,
+) -> Option<PathBuf> {
+    if let Some(dir) = fnm_dir {
+        return Some(PathBuf::from(dir));
+    }
+    if windows {
+        return localappdata.map(|l| PathBuf::from(l).join("fnm"));
+    }
+    let home = home?;
+    if macos {
+        Some(
+            PathBuf::from(home)
+                .join("Library")
+                .join("Application Support")
+                .join("fnm"),
+        )
+    } else if let Some(xdg) = xdg_data_home {
+        Some(PathBuf::from(xdg).join("fnm"))
+    } else {
+        Some(PathBuf::from(home).join(".local").join("share").join("fnm"))
+    }
+}
+
+/// Bin directories for an fnm install rooted at `root`: the `default` alias plus
+/// every installed node version. fnm keeps each node under
+/// `<root>/node-versions/<ver>/installation` and symlinks the active default to
+/// `<root>/aliases/default`. On Windows the node executables and `npm i -g` shims
+/// sit directly in `installation` (npm's prefix there); on Unix they're in
+/// `installation/bin`. Pure so the platform path shape is unit-tested; the
+/// version-dir read lives in `read_fnm_node_versions`.
+fn fnm_dirs(root: &Path, versions: &[String], windows: bool) -> Vec<PathBuf> {
+    let bin = |dir: PathBuf| if windows { dir } else { dir.join("bin") };
+    let node_versions = root.join("node-versions");
+    let mut dirs = vec![bin(root.join("aliases").join("default"))];
+    for version in versions {
+        dirs.push(bin(node_versions.join(version).join("installation")));
+    }
+    dirs
+}
+
+/// Version directory names under `<root>/node-versions` (e.g. "v24.17.0"),
+/// skipping fnm's `.downloads` staging dir; empty when fnm isn't installed.
+/// Touches the filesystem, so it's kept out of the pure path helpers and its
+/// output feeds `fnm_dirs`.
+fn read_fnm_node_versions(root: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(root.join("node-versions")) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| !name.starts_with('.'))
+        .collect()
+}
+
 /// First existing `name` across `dirs`, or None. Split out of `find_tool` so the
 /// PATH-independent resolution — a tool present only under an nvm bin, exactly
 /// the GUI-launch case this fixes — is unit-tested without mutating process env.
@@ -301,6 +368,24 @@ fn find_tool(stem: &str) -> Option<PathBuf> {
     if !windows {
         let nvm_versions = read_nvm_node_versions(home.as_deref());
         dirs.extend(node_version_manager_dirs(home.as_deref(), &nvm_versions));
+    }
+    // fnm keeps its node installs (and their `npm i -g` shims) under $FNM_DIR
+    // or a per-OS default, reached only through a per-shell PATH a GUI launch
+    // never inherits. Unlike nvm/volta/asdf above, this arm runs on Windows too:
+    // an fnm node's global shims land in the version's install dir, not
+    // %APPDATA%\npm, so the Windows npm-prefix search misses them.
+    let fnm_dir = std::env::var("FNM_DIR").ok();
+    let xdg_data_home = std::env::var("XDG_DATA_HOME").ok();
+    if let Some(root) = fnm_root(
+        fnm_dir.as_deref(),
+        home.as_deref(),
+        localappdata.as_deref(),
+        xdg_data_home.as_deref(),
+        windows,
+        cfg!(target_os = "macos"),
+    ) {
+        let fnm_versions = read_fnm_node_versions(&root);
+        dirs.extend(fnm_dirs(&root, &fnm_versions, windows));
     }
     resolve_in_dirs(&names, &dirs)
 }
@@ -616,6 +701,126 @@ mod tests {
 
         assert!(found.is_some(), "claude under an nvm bin must be found");
         assert!(found.unwrap().ends_with("v22.22.2/bin/claude"));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn fnm_root_honors_env_over_default() {
+        // fnm allows relocating its root via $FNM_DIR (this repo's owner does),
+        // so the env var must win over the per-OS default.
+        let custom = fnm_root(
+            Some(r"C:\custom\fnm"),
+            Some(r"C:\Users\me"),
+            Some(r"C:\Users\me\AppData\Local"),
+            None,
+            true,
+            false,
+        );
+        assert_eq!(custom, Some(PathBuf::from(r"C:\custom\fnm")));
+    }
+
+    #[test]
+    fn fnm_root_per_os_defaults() {
+        // Windows: %LOCALAPPDATA%\fnm
+        let win = fnm_root(None, Some(r"C:\Users\me"), Some(r"C:\Local"), None, true, false);
+        assert_eq!(win, Some(PathBuf::from(r"C:\Local").join("fnm")));
+        // macOS: ~/Library/Application Support/fnm
+        let mac = fnm_root(None, Some("/Users/me"), None, None, false, true);
+        assert_eq!(
+            mac,
+            Some(PathBuf::from("/Users/me/Library/Application Support/fnm"))
+        );
+        // Other Unix: $XDG_DATA_HOME/fnm when set, else ~/.local/share/fnm
+        let xdg = fnm_root(None, Some("/home/me"), None, Some("/home/me/.xdg"), false, false);
+        assert_eq!(xdg, Some(PathBuf::from("/home/me/.xdg/fnm")));
+        let linux = fnm_root(None, Some("/home/me"), None, None, false, false);
+        assert_eq!(linux, Some(PathBuf::from("/home/me/.local/share/fnm")));
+    }
+
+    #[test]
+    fn fnm_dirs_windows_uses_installation_dir_without_a_bin_subdir() {
+        // On Windows node.exe and the `npm i -g` shims sit directly in
+        // `installation` (npm's prefix), so no `bin` segment is appended.
+        let versions = vec!["v24.17.0".to_string()];
+        let root = PathBuf::from(r"C:\Users\me\AppData\Roaming\fnm");
+        let dirs = fnm_dirs(&root, &versions, true);
+        assert!(dirs.contains(&root.join("aliases").join("default")));
+        assert!(dirs.contains(
+            &root
+                .join("node-versions")
+                .join("v24.17.0")
+                .join("installation")
+        ));
+    }
+
+    #[test]
+    fn fnm_dirs_unix_appends_bin() {
+        // On Unix the executables live in `installation/bin`.
+        let versions = vec!["v22.14.0".to_string()];
+        let root = PathBuf::from("/home/me/.local/share/fnm");
+        let dirs = fnm_dirs(&root, &versions, false);
+        assert!(dirs.contains(&root.join("aliases").join("default").join("bin")));
+        assert!(dirs.contains(
+            &root
+                .join("node-versions")
+                .join("v22.14.0")
+                .join("installation")
+                .join("bin")
+        ));
+    }
+
+    #[test]
+    fn read_fnm_node_versions_lists_installs_and_skips_downloads() {
+        // A controlled <root>/node-versions tree: the reader returns each version
+        // dir and skips fnm's `.downloads` staging dir (a dotfile, not a version).
+        let base = std::env::temp_dir().join("tempo_setup_fnm_read_test");
+        let _ = std::fs::remove_dir_all(&base);
+        let node_versions = base.join("node-versions");
+        std::fs::create_dir_all(node_versions.join("v24.17.0").join("installation")).unwrap();
+        std::fs::create_dir_all(node_versions.join("v22.23.0").join("installation")).unwrap();
+        std::fs::create_dir_all(node_versions.join(".downloads")).unwrap();
+
+        let versions = read_fnm_node_versions(&base);
+        assert!(versions.contains(&"v24.17.0".to_string()));
+        assert!(versions.contains(&"v22.23.0".to_string()));
+        assert!(!versions.iter().any(|v| v == ".downloads"));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn read_fnm_node_versions_empty_when_absent() {
+        // No fnm install: empty, never an error.
+        let missing = std::env::temp_dir().join("tempo_setup_fnm_absent_test_xyz");
+        let _ = std::fs::remove_dir_all(&missing);
+        assert!(read_fnm_node_versions(&missing).is_empty());
+    }
+
+    #[test]
+    fn resolves_a_tool_present_only_under_an_fnm_windows_install() {
+        // The Windows fnm bug: `claude.cmd` from `npm i -g` lives in the node
+        // version's `installation` dir (npm's prefix there) and never on the
+        // GUI launch's PATH. End-to-end, detection must still resolve it from the
+        // fnm dirs alone.
+        let base = std::env::temp_dir().join("tempo_setup_e2e_fnm");
+        let _ = std::fs::remove_dir_all(&base);
+        let install = base
+            .join("node-versions")
+            .join("v24.17.0")
+            .join("installation");
+        std::fs::create_dir_all(&install).unwrap();
+        std::fs::write(install.join("claude.cmd"), b"@echo off\n").unwrap();
+
+        // No PATH involved — only the fnm dirs discovered from the root.
+        let versions = read_fnm_node_versions(&base);
+        let dirs = fnm_dirs(&base, &versions, true);
+        let found = resolve_in_dirs(&exe_names("claude", true), &dirs);
+
+        assert!(found.is_some(), "claude.cmd under an fnm installation must be found");
+        assert!(found
+            .unwrap()
+            .ends_with(PathBuf::from("installation").join("claude.cmd")));
 
         let _ = std::fs::remove_dir_all(&base);
     }
