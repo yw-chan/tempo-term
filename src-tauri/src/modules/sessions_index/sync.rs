@@ -116,6 +116,9 @@ fn commit(index: &Index, session: &ParsedSession, file_path: &str, mtime: i64, s
         Err(err) => {
             #[cfg(debug_assertions)]
             eprintln!("sessions_index: failed to upsert {file_path}: {err}");
+            // The log above is compiled out in release, so consume `err` here to
+            // stay warning-clean without an underscore-prefixed binding.
+            let _ = err;
             false
         }
     }
