@@ -1,3 +1,5 @@
+import { BRANCH_COLORS } from "./branchColors";
+
 /**
  * Minimal shape the layout algorithm needs: an id and its parent ids. A full
  * `CommitNode` satisfies this structurally, but callers that only have a
@@ -81,19 +83,49 @@ export function computeGraphLayout(
   // Each slot holds the hash a lane is currently waiting for. An empty string
   // marks a freed lane that a new branch can reuse.
   const activeLanes: string[] = [];
-  // Colour id per lane slot. A new branch line (every claim, including reusing a
-  // freed slot) takes the next colour so concurrent lanes never share a colour
-  // and adjacent branches stay visually distinct, independent of lane index.
+  // Palette-relative colour per lane slot. A new branch line (every claim,
+  // including reusing a freed slot) takes a colour not currently shown on any
+  // other active lane, so concurrent lanes never share a colour — until more
+  // than `BRANCH_COLORS.length` lanes are active at once, when the palette is
+  // exhausted and a repeat is unavoidable. This is stronger than a plain
+  // per-claim counter, whose value mod the palette length could wrap back onto
+  // a still-active neighbour (e.g. a branch forking off the trunk landing on
+  // the trunk's own colour).
   const laneColors: number[] = [];
+  const colorCount = BRANCH_COLORS.length;
+  // Where to start scanning for the next colour. Advancing it keeps colours
+  // cycling in palette order when nothing forces a different pick, so adjacent
+  // fresh branches still look distinct.
   let nextColor = 0;
+  const pickColor = (): number => {
+    const used = new Set<number>();
+    for (let idx = 0; idx < activeLanes.length; idx++) {
+      if (activeLanes[idx] !== "") {
+        used.add(laneColors[idx]);
+      }
+    }
+    for (let offset = 0; offset < colorCount; offset++) {
+      const candidate = (nextColor + offset) % colorCount;
+      if (!used.has(candidate)) {
+        nextColor = candidate + 1;
+        return candidate;
+      }
+    }
+    // Every colour is on an active lane (more lanes than colours): fall back to
+    // the running counter and accept the repeat.
+    return nextColor++ % colorCount;
+  };
   const claimLane = (): number => {
+    // The slot being claimed is still "" while pickColor() runs, so it is
+    // skipped there — a lane never counts its own (freed, stale) colour against
+    // itself, and the fresh colour only avoids genuinely active neighbours.
     const free = activeLanes.indexOf("");
     if (free !== -1) {
-      laneColors[free] = nextColor++;
+      laneColors[free] = pickColor();
       return free;
     }
     activeLanes.push("");
-    laneColors.push(nextColor++);
+    laneColors.push(pickColor());
     return activeLanes.length - 1;
   };
 
