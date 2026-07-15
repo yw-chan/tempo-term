@@ -237,7 +237,11 @@ export function GitGraph({
               minHeight: `${svgHeight}px`,
             }}
           >
-            <svg className="pointer-events-none absolute inset-0 h-full w-full">
+            {/* z-[1] keeps the branch lines above a hovered/selected row's
+                translucent background (which spans the gutter) but below the
+                commit nodes (z-10), so the lines stay visible instead of being
+                covered by the row tint. */}
+            <svg className="pointer-events-none absolute inset-0 z-[1] h-full w-full">
               {edges.map((edge, idx) => {
                 // Draw every edge overlapping the visible row range so lines
                 // stay continuous even when both endpoints are off-screen.
