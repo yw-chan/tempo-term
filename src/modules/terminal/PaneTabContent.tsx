@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, X } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { TerminalView } from "./TerminalView";
 import { dropPathsIntoTerminal, writeToTerminal } from "./lib/terminalBus";
 import {
@@ -41,7 +41,9 @@ const SessionsTabContent = lazy(() =>
 import { LauncherPanel } from "@/components/LauncherPanel";
 import { dropOverlayClassName, outerBandOverlayClassName } from "@/components/EntryDropOverlay";
 import { InfoDialog } from "@/components/InfoDialog";
+import { X } from "lucide-react";
 import { Tooltip } from "@/components/Tooltip";
+import { PaneHeader } from "./PaneHeader";
 import {
   fileUrl,
   shellQuotePath,
@@ -406,11 +408,26 @@ export function PaneTabContent({ tab }: { tab: Tab }) {
                 width: `${pane.rect.width}%`,
                 height: `${pane.rect.height}%`,
               }}
-              className={`p-1 ${
+              className={`flex flex-col p-1 ${
                 multiple ? (active ? "border border-accent/40" : "border border-border") : ""
               }`}
             >
-              {multiple && (
+              {pane.content?.kind === "terminal" && (
+                // Terminals get the header an editor pane already had, rather
+                // than controls floating over their own output.
+                <PaneHeader
+                  cwd={pane.content.cwd}
+                  isTerminal={!pane.content.ssh}
+                  showClose={multiple}
+                  onClose={() => {
+                    void deleteTerminalHistory(pane.id);
+                    closePane(tab.id, pane.id);
+                  }}
+                />
+              )}
+              {pane.content?.kind !== "terminal" && multiple && (
+                // Every other pane kind still floats its close button. Folding
+                // those into their own toolbars is its own change.
                 <Tooltip label={t("workspace.closePane")} className="absolute right-1.5 top-1.5 z-10">
                   <button
                     type="button"
@@ -426,6 +443,10 @@ export function PaneTabContent({ tab }: { tab: Tab }) {
                   </button>
                 </Tooltip>
               )}
+              {/* The header is shrink-0, so the content takes what is left —
+                  panes are absolutely sized, and h-full inside would overflow
+                  by exactly the header's height. */}
+              <div className="relative min-h-0 flex-1">
               <Suspense
                 fallback={
                   <div className="flex h-full w-full items-center justify-center text-fg-subtle">
@@ -501,6 +522,7 @@ export function PaneTabContent({ tab }: { tab: Tab }) {
                   />
                 )}
               </Suspense>
+              </div>
 
               {/* Highlight only the pane under the cursor while dragging an
                   explorer entry. The drop itself is handled by the document-level
