@@ -17,7 +17,7 @@ import { registerEditorSaver, unregisterEditorSaver } from "./lib/editorBus";
 import { fsReadFile, fsWriteFile } from "@/modules/explorer/lib/fsBridge";
 import { MarkdownView } from "@/components/MarkdownView";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { EditorToolbar, type EditorMode } from "./EditorToolbar";
+import { EditorPaneHeader, type EditorMode } from "./EditorPaneHeader";
 import { selectTerminalFontFamily, useFontStore } from "@/stores/fontStore";
 import { useSettingsStore } from "@/stores/settingsStore";
 
@@ -53,10 +53,17 @@ export function EditorTabContent({
   path,
   onOpenWebPreview,
   leafId,
+  onSwitchFile,
+  showClose = false,
+  onClose,
 }: {
   path: string;
   onOpenWebPreview?: () => void;
   leafId: string;
+  /** Breadcrumb pick: show a sibling file in this same pane (docs/adr 0001). */
+  onSwitchFile?: (path: string) => void;
+  showClose?: boolean;
+  onClose?: () => void;
 }) {
   const { t } = useTranslation("editor");
   const setBaseline = useEditorStore((s) => s.setBaseline);
@@ -261,7 +268,7 @@ export function EditorTabContent({
         }
       }}
     >
-      <EditorToolbar
+      <EditorPaneHeader
         path={path}
         wordWrap={wordWrap}
         onToggleWordWrap={toggleWordWrap}
@@ -269,6 +276,9 @@ export function EditorTabContent({
         onOpenWebPreview={onOpenWebPreview}
         mode={mode}
         onSetMode={setMode}
+        onSwitchFile={(next) => onSwitchFile?.(next)}
+        showClose={showClose}
+        onClose={() => onClose?.()}
       />
 
       {externalChanged && (

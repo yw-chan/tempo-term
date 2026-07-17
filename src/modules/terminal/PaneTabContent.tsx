@@ -41,9 +41,8 @@ const SessionsTabContent = lazy(() =>
 import { LauncherPanel } from "@/components/LauncherPanel";
 import { dropOverlayClassName, outerBandOverlayClassName } from "@/components/EntryDropOverlay";
 import { InfoDialog } from "@/components/InfoDialog";
-import { X } from "lucide-react";
-import { Tooltip } from "@/components/Tooltip";
-import { PaneHeader } from "./PaneHeader";
+import { PaneHeader } from "@/components/PaneHeader";
+import { TerminalPaneHeader } from "./TerminalPaneHeader";
 import {
   fileUrl,
   shellQuotePath,
@@ -63,6 +62,17 @@ import { useOsc7FallbackHint } from "@/modules/ssh/lib/useOsc7FallbackHint";
 
 const MIN_FRACTION = 0.1;
 const MAX_FRACTION = 0.9;
+
+// Pane kinds whose content brings no header of its own. They get the minimal
+// close-only PaneHeader instead, and only while the tab is split — a single
+// pane would show an empty strip. Every other kind renders a full header
+// (with the close button folded in) from inside its own content component.
+const HEADERLESS_KINDS = new Set<PaneContent["kind"]>([
+  "note",
+  "git-graph",
+  "sessions",
+  "launcher",
+]);
 
 /**
  * Renders one tab as a recursive split of panes. Each leaf shows a terminal,
@@ -119,6 +129,13 @@ export function PaneTabContent({ tab }: { tab: Tab }) {
   const panes = computeLayout(tab.paneTree);
   const splitters = computeSplitters(tab.paneTree);
   const multiple = panes.length > 1;
+
+  // Closing a pane also drops its terminal scrollback history (a no-op for
+  // panes that never held a terminal).
+  function closePaneAndHistory(paneId: string) {
+    void deleteTerminalHistory(paneId);
+    closePane(tab.id, paneId);
+  }
 
   const hoverZone: DropZone | null =
     hoverLeaf && hoverPointerPct
@@ -413,35 +430,16 @@ export function PaneTabContent({ tab }: { tab: Tab }) {
               }`}
             >
               {pane.content?.kind === "terminal" && (
-                // Terminals get the header an editor pane already had, rather
-                // than controls floating over their own output.
-                <PaneHeader
+                <TerminalPaneHeader
                   cwd={pane.content.cwd}
-                  isTerminal={!pane.content.ssh}
+                  sshConnectionId={pane.content.ssh?.connectionId}
+                  leafId={pane.id}
                   showClose={multiple}
-                  onClose={() => {
-                    void deleteTerminalHistory(pane.id);
-                    closePane(tab.id, pane.id);
-                  }}
+                  onClose={() => closePaneAndHistory(pane.id)}
                 />
               )}
-              {pane.content?.kind !== "terminal" && multiple && (
-                // Every other pane kind still floats its close button. Folding
-                // those into their own toolbars is its own change.
-                <Tooltip label={t("workspace.closePane")} className="absolute right-1.5 top-1.5 z-10">
-                  <button
-                    type="button"
-                    aria-label={t("workspace.closePane")}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void deleteTerminalHistory(pane.id);
-                      closePane(tab.id, pane.id);
-                    }}
-                    className="rounded bg-bg-inset/80 p-0.5 text-fg-subtle hover:bg-border-strong hover:text-fg"
-                  >
-                    <X size={12} />
-                  </button>
-                </Tooltip>
+              {pane.content && HEADERLESS_KINDS.has(pane.content.kind) && multiple && (
+                <PaneHeader showClose onClose={() => closePaneAndHistory(pane.id)} />
               )}
               {/* The header is shrink-0, so the content takes what is left —
                   panes are absolutely sized, and h-full inside would overflow
@@ -464,6 +462,11 @@ export function PaneTabContent({ tab }: { tab: Tab }) {
                         onOpenWebPreview={() =>
                           openHtmlPreview(tab.id, pane.id, editorPath)
                         }
+                        onSwitchFile={(next) =>
+                          setPaneContent(tab.id, pane.id, { kind: "editor", path: next })
+                        }
+                        showClose={multiple}
+                        onClose={() => closePaneAndHistory(pane.id)}
                       />
                     );
                   })()
@@ -484,11 +487,18 @@ export function PaneTabContent({ tab }: { tab: Tab }) {
                     })}
                     onNavigate={(url) => navigatePreview(tab.id, pane.id, url)}
                     onTitle={(title) => setPreviewTabTitle(tab.id, pane.id, title)}
+                    showClose={multiple}
+                    onClose={() => closePaneAndHistory(pane.id)}
                   />
                 ) : pane.content.kind === "git-graph" ? (
                   <GitGraphTabContent />
                 ) : pane.content.kind === "diff" ? (
-                  <DiffTabContent path={pane.content.path} staged={pane.content.staged} />
+                  <DiffTabContent
+                    path={pane.content.path}
+                    staged={pane.content.staged}
+                    showClose={multiple}
+                    onClose={() => closePaneAndHistory(pane.id)}
+                  />
                 ) : pane.content.kind === "sessions" ? (
                   <SessionsTabContent />
                 ) : pane.content.kind === "launcher" ? (
