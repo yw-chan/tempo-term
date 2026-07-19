@@ -19,6 +19,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useTabsStore, type Tab, type TabKind } from "@/stores/tabsStore";
+import { AgentIcon } from "@/components/AgentIcon";
 import { Tooltip } from "@/components/Tooltip";
 import { useIsTruncated } from "@/components/useIsTruncated";
 import { ContextMenu } from "@/components/ContextMenu";
@@ -27,7 +28,9 @@ import { useTabCloseRequest } from "@/components/useTabCloseRequest";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { useSessionStatusStore } from "@/modules/claude-progress/lib/sessionStatusStore";
 import type { SessionStatus } from "@/modules/claude-progress/lib/sessionStatus";
+import type { AgentKind } from "@/modules/claude-progress/lib/codexNormalize";
 import { tabSessionStatus } from "./lib/tabSessionStatus";
+import { computeLayout } from "@/modules/terminal/lib/terminalLayout";
 import { deriveTabCwd } from "./lib/tabCwd";
 import { selectCardTitle } from "./lib/cardTitle";
 import { collectTabSessions, type TabSession } from "./lib/tabSessions";
@@ -40,6 +43,7 @@ import { useWorkspacePrs } from "./lib/useWorkspacePrs";
 import type { WorktreeInfo } from "./lib/worktreeBridge";
 import type { PrInfo } from "./lib/prBridge";
 import { agentLabel } from "./lib/agentLabel";
+import { abbreviateHome } from "./lib/abbreviatePath";
 import { probeCardRender } from "@/lib/perfProbe";
 
 function tabIcon(kind: TabKind): LucideIcon {
@@ -93,11 +97,12 @@ interface BranchFlags {
 function BranchLine({
   branch,
   path,
+  agent,
   showBranch,
   showCwd,
-}: { branch: string | null; path: string | null } & BranchFlags) {
+}: { branch: string | null; path: string | null; agent?: AgentKind } & BranchFlags) {
   const shownBranch = showBranch ? branch : null;
-  const shownPath = showCwd ? path : null;
+  const shownPath = showCwd && path ? abbreviateHome(path) : null;
   if (!shownBranch && !shownPath) {
     return null;
   }
@@ -105,6 +110,8 @@ function BranchLine({
   // truncation) so a long repo or path is always readable. The path is indented
   // to sit under the branch text, so it stays visually paired with its repo when
   // a card lists more than one (e.g. a worktree's main repo plus the worktree).
+  // A detected CLI's logomark takes over the indent slot (icon 11px + gap 4px
+  // = the same 15px), marking which agent runs in that directory.
   return (
     <span className="block text-[11px] leading-snug text-fg-subtle">
       {shownBranch && (
@@ -113,9 +120,15 @@ function BranchLine({
           <span className="min-w-0 break-all">{shownBranch}</span>
         </span>
       )}
-      {shownPath && (
-        <span className={`block break-all ${shownBranch ? "pl-[15px]" : ""}`}>{shownPath}</span>
-      )}
+      {shownPath &&
+        (agent ? (
+          <span className="flex items-start gap-1">
+            <AgentIcon agent={agent} size={11} className="mt-[3px] shrink-0" />
+            <span className="min-w-0 break-all">{shownPath}</span>
+          </span>
+        ) : (
+          <span className={`block break-all ${shownBranch ? "pl-[15px]" : ""}`}>{shownPath}</span>
+        ))}
     </span>
   );
 }
@@ -128,20 +141,22 @@ function BranchLine({
 function BranchBlock({
   info,
   cwd,
+  agent,
   showBranch,
   showCwd,
-}: { info: WorktreeInfo | undefined; cwd: string | null } & BranchFlags) {
+}: { info: WorktreeInfo | undefined; cwd: string | null; agent?: AgentKind } & BranchFlags) {
   if (!showBranch && !showCwd) {
     return null;
   }
   if (!info) {
     return showCwd && cwd ? (
-      <span className="block break-all text-[11px] leading-snug text-fg-subtle">{cwd}</span>
+      <BranchLine branch={null} path={cwd} agent={agent} showBranch={showBranch} showCwd={showCwd} />
     ) : null;
   }
   if (info.isWorktree) {
     // Extra space between the two repo groups so each branch stays visually
-    // paired with its own path.
+    // paired with its own path. The agent runs in the worktree, so only that
+    // line carries the CLI icon.
     return (
       <span className="block space-y-1.5">
         <BranchLine
@@ -153,6 +168,7 @@ function BranchBlock({
         <BranchLine
           branch={info.branch}
           path={info.cwd}
+          agent={agent}
           showBranch={showBranch}
           showCwd={showCwd}
         />
@@ -160,7 +176,13 @@ function BranchBlock({
     );
   }
   return (
-    <BranchLine branch={info.branch} path={info.cwd} showBranch={showBranch} showCwd={showCwd} />
+    <BranchLine
+      branch={info.branch}
+      path={info.cwd}
+      agent={agent}
+      showBranch={showBranch}
+      showCwd={showCwd}
+    />
   );
 }
 
@@ -204,30 +226,70 @@ function sessionTitle(session: TabSession, titles: Record<string, string>): stri
 }
 
 /**
- * One session line inside a card that runs more than one agent: its status, the
- * agent label, and its own title. The status badge follows the card setting.
+ * One pane's session inside a split card, a five-line block: the pane's own
+ * card title (its folder name, accented while the pane is the tab's focused
+ * one), then agent logomark + session title with the status badge pushed
+ * right, then that pane's own branch, directory, and PR.
  */
-function SessionRow({
+function SessionBlock({
   session,
   titles,
   showStatus,
+  active,
+  divider,
+  info,
+  pr,
+  showBranch,
+  showCwd,
 }: {
   session: TabSession;
   titles: Record<string, string>;
   showStatus: boolean;
-}) {
-  const label = agentLabel(session.agent);
+  active: boolean;
+  /** Draw a separator above this block (every block but the card's first). */
+  divider: boolean;
+  info: WorktreeInfo | undefined;
+  pr: PrInfo | undefined;
+} & BranchFlags) {
+  const blockTitle = session.cwd ? basename(session.cwd) : sessionTitle(session, titles);
   const title = sessionTitle(session, titles);
+  const [blockTitleRef, blockTitleTruncated] = useIsTruncated(blockTitle);
   const [titleRef, truncated] = useIsTruncated(title);
   return (
-    <span className="flex items-center gap-1.5">
-      {showStatus && <StatusBadge status={session.status} />}
-      {label && <span className="shrink-0 text-[11px] text-fg-subtle">{label}</span>}
-      <Tooltip label={truncated && title} className="min-w-0 flex-1">
-        <span ref={titleRef} className="min-w-0 flex-1 truncate text-[11px] text-fg-muted">
-          {title}
+    <span className={`block ${divider ? "border-t border-border pt-1.5" : ""}`}>
+      {/* flex, not a bare line box: line-height slack above the inline-flex
+          tooltip wrapper would push the first block below the tab icon. */}
+      <span className="flex">
+        <Tooltip label={blockTitleTruncated && blockTitle} className="w-full">
+          <span
+            ref={blockTitleRef}
+            className={`min-w-0 flex-1 truncate text-xs font-medium ${
+              active ? "text-accent" : "text-fg"
+            }`}
+          >
+            {blockTitle}
+          </span>
+        </Tooltip>
+      </span>
+      <span className="mt-0.5 flex items-center gap-1.5">
+        {session.agent && (
+          <Tooltip label={agentLabel(session.agent)} className="shrink-0">
+            <AgentIcon agent={session.agent} size={12} className="shrink-0 text-fg-subtle" />
+          </Tooltip>
+        )}
+        <Tooltip label={truncated && title} className="min-w-0 flex-1">
+          <span ref={titleRef} className="min-w-0 flex-1 truncate text-[11px] text-fg-muted">
+            {title}
+          </span>
+        </Tooltip>
+        {showStatus && <StatusBadge status={session.status} />}
+      </span>
+      <BranchBlock info={info} cwd={session.cwd} showBranch={showBranch} showCwd={showCwd} />
+      {pr && (
+        <span className="mt-0.5 flex">
+          <PrBadge pr={pr} />
         </span>
-      </Tooltip>
+      )}
     </span>
   );
 }
@@ -272,7 +334,9 @@ function TabCard({ tab, index }: { tab: Tab; index: number }) {
   const title = selectCardTitle(tab, autoTitle);
   const pr = cwd ? prs[cwd] : undefined;
   const Icon = tabIcon(tab.kind);
-  const label = agentLabel(primary?.agent);
+  // The CLI icon on the directory line marks a single-session card's agent;
+  // a multi-session card labels each session row with its own icon instead.
+  const cardAgent = multi ? undefined : primary?.agent;
   // The rename input replaces the title span while editing, which detaches the
   // ref and turns the flag (and so the card tooltip) off on its own.
   const [titleRef, titleTruncated] = useIsTruncated(title);
@@ -325,48 +389,69 @@ function TabCard({ tab, index }: { tab: Tab; index: number }) {
           <span className="text-[10px] font-medium leading-none text-fg-subtle">{index}</span>
         </span>
         <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5">
-            {editing ? (
-              <input
-                ref={inputRef}
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                onBlur={commitRename}
-                onClick={(event) => event.stopPropagation()}
-                onPointerDown={(event) => event.stopPropagation()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") commitRename();
-                  if (event.key === "Escape") setEditing(false);
-                }}
-                className="min-w-0 flex-1 rounded border border-accent bg-bg px-1 text-xs text-fg outline-none"
-              />
-            ) : (
-              <span ref={titleRef} className="min-w-0 flex-1 truncate text-xs font-medium text-fg">
-                {title}
-              </span>
-            )}
-            {!multi && card.status && status && <StatusBadge status={status} />}
-            {!multi && card.status && status && label && (
-              <span className="shrink-0 text-[11px] text-fg-subtle">{label}</span>
-            )}
-          </span>
-          {multi && (
-            <span className="mt-1 block space-y-0.5">
-              {sessions.map((session) => (
-                <SessionRow
+          {/* A split card has no shared title row — each pane block carries its
+              own; the row still appears there while renaming the tab. */}
+          {(editing || !multi) && (
+            <span className="flex items-center gap-1.5">
+              {editing ? (
+                <input
+                  ref={inputRef}
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onBlur={commitRename}
+                  onClick={(event) => event.stopPropagation()}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") commitRename();
+                    if (event.key === "Escape") setEditing(false);
+                  }}
+                  className="min-w-0 flex-1 rounded border border-accent bg-bg px-1 text-xs text-fg outline-none"
+                />
+              ) : (
+                <span
+                  ref={titleRef}
+                  className="min-w-0 flex-1 truncate text-xs font-medium text-fg"
+                >
+                  {title}
+                </span>
+              )}
+              {!multi && card.status && status && <StatusBadge status={status} />}
+            </span>
+          )}
+          {multi ? (
+            // A split card lists every pane's session with its own directory,
+            // instead of the tab-level block that follows only the focused pane.
+            <span className={`${editing ? "mt-1 " : ""}block space-y-1.5`}>
+              {sessions.map((session, i) => (
+                <SessionBlock
                   key={session.leafId}
                   session={session}
                   titles={titles}
                   showStatus={card.status}
+                  active={session.leafId === tab.activeLeafId}
+                  divider={i > 0}
+                  info={session.cwd ? infos[session.cwd] : undefined}
+                  pr={(card.pr && session.cwd && prs[session.cwd]) || undefined}
+                  showBranch={card.branch}
+                  showCwd={card.cwd}
                 />
               ))}
             </span>
-          )}
-          <BranchBlock info={info} cwd={cwd} showBranch={card.branch} showCwd={card.cwd} />
-          {card.pr && pr && (
-            <span className="mt-0.5 block">
-              <PrBadge pr={pr} />
-            </span>
+          ) : (
+            <>
+              <BranchBlock
+                info={info}
+                cwd={cwd}
+                agent={cardAgent}
+                showBranch={card.branch}
+                showCwd={card.cwd}
+              />
+              {card.pr && pr && (
+                <span className="mt-0.5 flex">
+                  <PrBadge pr={pr} />
+                </span>
+              )}
+            </>
           )}
         </span>
         {menu && (
@@ -540,14 +625,20 @@ export function WorkspacePanel() {
   const leafAgents = useSessionStatusStore((s) => s.agents);
   const sessionIds = useSessionStatusStore((s) => s.sessionIds);
   // Dedupe so multiple tabs in the same directory don't trigger redundant IPC
-  // and network lookups for that directory.
+  // and network lookups for that directory. Split panes are listed
+  // individually because a multi-session card shows each pane's own directory.
   const cwds = useMemo(
     () =>
       Array.from(
         new Set(
-          tabs.map((tab) => deriveTabCwd(tab)).filter((cwd): cwd is string => cwd !== null),
+          tabs.flatMap((tab) => [
+            deriveTabCwd(tab),
+            ...computeLayout(tab.paneTree).flatMap((pane) =>
+              pane.content.kind === "terminal" ? [pane.content.cwd ?? tab.cwd ?? null] : [],
+            ),
+          ]),
         ),
-      ),
+      ).filter((cwd): cwd is string => cwd !== null),
     [tabs],
   );
   useWorktreeInfos(cwds);

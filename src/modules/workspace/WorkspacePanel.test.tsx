@@ -263,11 +263,165 @@ describe("WorkspacePanel", () => {
       },
     });
     render(<WorkspacePanel />);
-    const card = screen.getByRole("button", { name: /split/ });
-    expect(within(card).getByText("Codex")).toBeInTheDocument();
-    expect(within(card).getByText("Claude")).toBeInTheDocument();
+    const card = screen.getByRole("button", { name: /Codex task/ });
+    expect(within(card).getByRole("img", { name: "Codex" })).toBeInTheDocument();
+    expect(within(card).getByRole("img", { name: "Claude" })).toBeInTheDocument();
     expect(within(card).getByText("Codex task")).toBeInTheDocument();
     expect(within(card).getByText("Claude task")).toBeInTheDocument();
+  });
+
+  it("shows each pane's own directory on a split card, not just the focused pane's", () => {
+    useTabsStore.setState({
+      spaces: [{ id: "s1", name: "Salon" }],
+      activeSpaceId: "s1",
+      activeId: "t1",
+      tabs: [
+        {
+          id: "t1",
+          spaceId: "s1",
+          title: "split",
+          kind: "terminal",
+          paneTree: {
+            kind: "split",
+            direction: "row",
+            sizes: [0.5, 0.5],
+            children: [
+              { kind: "leaf", id: "p1", pane: { kind: "terminal", cwd: "/x" } },
+              { kind: "leaf", id: "p2", pane: { kind: "terminal", cwd: "/y" } },
+            ],
+          },
+          activeLeafId: "p1",
+          paneOrder: ["p1", "p2"],
+        },
+      ],
+    });
+    useSessionStatusStore.setState({
+      statuses: { p1: "active", p2: "thinking" },
+      agents: { p1: "claude", p2: "codex" },
+    });
+    render(<WorkspacePanel />);
+    const card = screen.getByRole("button", { name: /\/x/ });
+    expect(within(card).getByText("/x")).toBeInTheDocument();
+    expect(within(card).getByText("/y")).toBeInTheDocument();
+  });
+
+  it("accents the focused pane's block title on a split card", () => {
+    useTabsStore.setState({
+      spaces: [{ id: "s1", name: "Salon" }],
+      activeSpaceId: "s1",
+      activeId: "t1",
+      tabs: [
+        {
+          id: "t1",
+          spaceId: "s1",
+          title: "split",
+          kind: "terminal",
+          paneTree: {
+            kind: "split",
+            direction: "row",
+            sizes: [0.5, 0.5],
+            children: [
+              { kind: "leaf", id: "p1", pane: { kind: "terminal", cwd: "/ax" } },
+              { kind: "leaf", id: "p2", pane: { kind: "terminal", cwd: "/ay" } },
+            ],
+          },
+          activeLeafId: "p1",
+          paneOrder: ["p1", "p2"],
+        },
+      ],
+    });
+    useSessionStatusStore.setState({
+      statuses: { p1: "active", p2: "thinking" },
+      agents: { p1: "codex", p2: "claude" },
+    });
+    useTitlesStore.setState({
+      titles: {
+        [progressKey("/ax", "codex")]: "Codex task",
+        [progressKey("/ay", "claude")]: "Claude task",
+      },
+    });
+    render(<WorkspacePanel />);
+    // The block title (the pane's folder name) carries the active style, not
+    // the session title.
+    expect(screen.getByText("ax")).toHaveClass("text-accent");
+    expect(screen.getByText("ay")).not.toHaveClass("text-accent");
+    expect(screen.getByText("Codex task")).not.toHaveClass("text-accent");
+  });
+
+  it("shows the Claude logomark before the directory when a Claude session runs", () => {
+    useSessionStatusStore.setState({ statuses: { p1: "active" }, agents: { p1: "claude" } });
+    render(<WorkspacePanel />);
+    const card = screen.getByRole("button", { name: /alpha/ });
+    expect(within(card).getByRole("img", { name: "Claude" })).toBeInTheDocument();
+  });
+
+  it("shows the Codex logomark before the directory when a codex session runs", () => {
+    useSessionStatusStore.setState({ statuses: { p1: "active" }, agents: { p1: "codex" } });
+    render(<WorkspacePanel />);
+    const card = screen.getByRole("button", { name: /alpha/ });
+    expect(within(card).getByRole("img", { name: "Codex" })).toBeInTheDocument();
+  });
+
+  it("shows no CLI logomark when the card has no live session", () => {
+    render(<WorkspacePanel />);
+    const card = screen.getByRole("button", { name: /beta/ });
+    expect(within(card).queryByRole("img", { name: "Claude" })).toBeNull();
+    expect(within(card).queryByRole("img", { name: "Codex" })).toBeNull();
+  });
+
+  it("labels each session row with its own logomark on a mixed split, none on the directory", () => {
+    useTabsStore.setState({
+      spaces: [{ id: "s1", name: "Salon" }],
+      activeSpaceId: "s1",
+      activeId: "t1",
+      tabs: [
+        {
+          id: "t1",
+          spaceId: "s1",
+          title: "split",
+          kind: "terminal",
+          paneTree: {
+            kind: "split",
+            direction: "row",
+            sizes: [0.5, 0.5],
+            children: [
+              { kind: "leaf", id: "p1", pane: { kind: "terminal", cwd: "/gamma" } },
+              { kind: "leaf", id: "p2", pane: { kind: "terminal", cwd: "/gamma" } },
+            ],
+          },
+          activeLeafId: "p1",
+          paneOrder: ["p1", "p2"],
+        },
+      ],
+    });
+    useSessionStatusStore.setState({
+      statuses: { p1: "active", p2: "thinking" },
+      agents: { p1: "codex", p2: "claude" },
+    });
+    render(<WorkspacePanel />);
+    const card = screen.getByRole("button", { name: /gamma/ });
+    // Exactly one icon per session row; a second Claude/Codex match would mean
+    // a directory line wrongly picked up an agent icon too.
+    expect(within(card).getAllByRole("img", { name: "Claude" })).toHaveLength(1);
+    expect(within(card).getAllByRole("img", { name: "Codex" })).toHaveLength(1);
+  });
+
+  it("puts the CLI logomark on the worktree line only, not the main repo line", () => {
+    useWorktreeStore.setState({
+      infos: {
+        "/a": {
+          branch: "feature",
+          cwd: "/a",
+          isWorktree: true,
+          mainBranch: "main",
+          mainPath: "/main",
+        },
+      },
+    });
+    useSessionStatusStore.setState({ statuses: { p1: "active" }, agents: { p1: "claude" } });
+    render(<WorkspacePanel />);
+    const card = screen.getByRole("button", { name: /alpha/ });
+    expect(within(card).getAllByRole("img", { name: "Claude" })).toHaveLength(1);
   });
 
   it("shows a PR badge on a card whose cwd has a tracked PR", () => {
